@@ -249,21 +249,12 @@ def search_values(p, hands, tp, tc, tlen, gone, won, voids, t, team, n, track, r
     seen = gone | hand
     for i in range(tlen):
         seen |= bit(tc[i])
-    unseen = np.empty(54, np.int64)
-    nun = 0
-    rest = gf[G_DECK] & ~seen
-    while rest:
-        c = lowest(rest)
-        rest &= rest - 1
-        unseen[nun] = c
-        nun += 1
+    unseen = gf[G_DECK] & ~seen
     lead_p = tp[0] if tlen else p
     world = np.zeros(n, np.int64)
-    perm = np.empty(54, np.int64)
-    used = np.zeros(54, np.int8)
     order = np.empty(n, np.int64)
     for s in range(nsamp):
-        sample_world(p, hands, unseen, nun, voids, n, t, tab, world, perm, used, order, states, s)
+        sample_world(p, hands, unseen, voids, n, t, tab, world, order, states, s)
         x = opts
         while x:
             c = lowest(x)

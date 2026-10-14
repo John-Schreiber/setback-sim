@@ -1,7 +1,7 @@
 """The generalized GPU engine against the generalized CPU engine, for every preset.
 
 Both rule-based and search games must match exactly: same deals, same points. Search
-draws from the same seeded streams with the same shuffle on both (core.sample_world).
+draws from the same seeded streams with the same sampler on both (core.sample_world).
 
     .venv/Scripts/python tests/test_pitch_gpu.py
 """
