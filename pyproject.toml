@@ -1,0 +1,16 @@
+[project]
+name = "setback-sim"
+version = "0.1.0"
+description = "Monte Carlo simulator and bidding tables for Setback (Pitch), with CPU and GPU engines"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.13"
+dependencies = [
+    "numpy>=2.4,<2.5",   # numba-cuda 0.30 still calls np.row_stack, removed in NumPy 2.5
+    "numba>=0.68",
+    "pandas>=3.0",
+]
+
+[project.optional-dependencies]
+gpu = ["numba-cuda[cu13]>=0.30"]
+reports = ["openpyxl>=3.1", "reportlab>=4.0", "pypdfium2>=4.0"]

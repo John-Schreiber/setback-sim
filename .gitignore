@@ -1,0 +1,22 @@
+# environments and caches
+.venv/
+__pycache__/
+*.pyc
+*.nbi
+*.nbc
+
+# large generated data: published as GitHub Release assets instead (see README)
+allhands_*/
+allhands_*.csv.gz
+sweep_*.npz
+trumpdata_*.npz
+trump_theta_*.npy
+old_trump_weights/
+
+# run logs
+*.log
+
+# results from earlier rule versions (superseded by the condensed charts and tables)
+survey_*.txt
+bidchart_*_t2*.csv
+bidchart_6p_t3.csv
