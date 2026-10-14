@@ -27,3 +27,4 @@ archive/
 # coordinator data (job queue and results)
 dist-data/
 docker/.env
+logs/
