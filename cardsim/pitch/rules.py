@@ -94,3 +94,26 @@ PRESETS = {
                             min_bid=9, max_bid=18, moon_bid=19, moon_value=19, target=100,
                             bidder_out_first=True, backdoor=-100),
 }
+
+
+def describe(rules):
+    """One-line summary of a preset's rules."""
+    pts = [f"High {rules.high}", f"Low {rules.low}" + ("" if rules.low_to_captor else " (to whoever was dealt it)"),
+           f"Jack {rules.jack}"]
+    if rules.off_jack:
+        pts.append(f"off-jack {rules.off_jack_pts}")
+    if rules.jokers:
+        pts.append(f"{rules.jokers} joker{'s' if rules.jokers > 1 else ''} {rules.joker_pts} each")
+    for lab, v in (("10 of trump", rules.ten_pts), ("3 of trump", rules.three_pts),
+                   ("5 of trump", rules.five_pts), ("9 of trump", rules.nine_pts)):
+        if v:
+            pts.append(f"{lab} {v}")
+    pts.append(f"Game {rules.game}")
+    if rules.last_trick:
+        pts.append(f"last trick {rules.last_trick}")
+    deal = f"{rules.deal_size} cards" + (", discard non-trumps and draw back to 6" if rules.refill or
+                                         rules.deal_size > rules.hand_size else "")
+    play = "may trump in" if rules.may_trump else "must follow suit"
+    bids = f"bids {rules.min_bid}-{rules.max_bid}" + (f", moon {rules.moon_bid} = {rules.moon_value}"
+                                                      if rules.moon_bid else "")
+    return f"{deal}; {play}; {', '.join(pts)} ({rules.points_total} total); {bids}; game to {rules.target}"

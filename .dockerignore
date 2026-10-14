@@ -13,3 +13,4 @@ charts
 *.log
 *.csv.gz
 tests
+site/_build

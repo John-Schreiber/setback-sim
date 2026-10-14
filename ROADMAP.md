@@ -66,7 +66,13 @@ Results are checkpointed per job, so a restarted worker or coordinator loses at 
 **Done when:** an every-hand table built across both machines matches one built on a single
 machine.
 
-## 4. Browsable stats site
+## 4. Browsable stats site (done)
+
+Done, with Parquet and DuckDB-WASM instead of Datasette Lite: the page queries the data in the
+browser with HTTP range requests, so even the 3.85-million-row every-hand table is searchable
+(a hand lookup reads under 1 MB). `site/build.py` writes the data, and
+`.github/workflows/pages.yml` rebuilds and publishes the site on each change or release.
+The original plan:
 
 Static hosting on GitHub Pages (the repo is public):
 

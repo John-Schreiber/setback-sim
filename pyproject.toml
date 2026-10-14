@@ -15,6 +15,10 @@ dependencies = [
 gpu = ["numba-cuda[cu13]>=0.30"]          # CUDA 13: Turing (RTX 20xx) and newer, driver 580+
 gpu-cu12 = ["numba-cuda[cu12]>=0.30"]     # CUDA 12: older cards such as Pascal (GTX 10xx), driver 525+
 dist = ["fastapi>=0.110", "uvicorn>=0.30"]
+site = [
+    "duckdb>=1.5.6",
+    "pyarrow>=26.0.0",
+]
 
 [tool.uv]
 conflicts = [[{ extra = "gpu" }, { extra = "gpu-cu12" }]]

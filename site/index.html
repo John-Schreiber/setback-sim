@@ -1,0 +1,369 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ctext y='14' font-size='14'%3E%E2%99%A0%3C/text%3E%3C/svg%3E">
+<title>Setback Bid Stats</title>
+<meta name="description" content="How high to bid in Setback / Pitch: bid charts for many house rules and every 6-card hand, from GPU simulations. Query them in your browser.">
+<style>
+  :root {
+    --bg: #fbfaf7; --panel: #ffffff; --ink: #1d1d1b; --muted: #6b6a66; --line: #e3e0d8;
+    --accent: #1f6f5c; --accent-ink: #ffffff; --warn: #9a3b2e;
+    --b0: #f1efe9; --b1: #dcefe6; --b2: #b5dfcc; --b3: #7cc4a6; --b4: #3f9f7c; --b5: #1f6f5c;
+    --mono: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #151614; --panel: #1d1f1c; --ink: #ecebe6; --muted: #a09e97; --line: #33352f;
+      --accent: #5cc29b; --accent-ink: #0d1a14; --warn: #e08a7a;
+      --b0: #23251f; --b1: #1f3a2f; --b2: #23503e; --b3: #2b6b51; --b4: #3a8a67; --b5: #5cc29b;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #151614; --panel: #1d1f1c; --ink: #ecebe6; --muted: #a09e97; --line: #33352f;
+    --accent: #5cc29b; --accent-ink: #0d1a14; --warn: #e08a7a;
+    --b0: #23251f; --b1: #1f3a2f; --b2: #23503e; --b3: #2b6b51; --b4: #3a8a67; --b5: #5cc29b;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+         font: 16px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  main { max-width: 1100px; margin: 0 auto; padding: 24px 16px 64px; }
+  h1 { font-size: 1.7rem; margin: 0 0 4px; }
+  p { margin: 0 0 12px; }
+  a { color: var(--accent); }
+  .lede { color: var(--muted); max-width: 70ch; }
+  .tabs { display: flex; gap: 4px; margin: 20px 0 0; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+  .tabs button { border: 1px solid transparent; border-bottom: none; background: none; color: var(--muted);
+                 padding: 8px 14px; font: inherit; cursor: pointer; border-radius: 8px 8px 0 0; }
+  .tabs button[aria-selected="true"] { color: var(--ink); background: var(--panel); border-color: var(--line);
+                                       margin-bottom: -1px; }
+  section.panel { background: var(--panel); border: 1px solid var(--line); border-top: none;
+                  border-radius: 0 0 10px 10px; padding: 20px; }
+  section[hidden] { display: none; }
+  .row { display: flex; gap: 12px; flex-wrap: wrap; align-items: end; margin-bottom: 14px; }
+  label { display: flex; flex-direction: column; font-size: .85rem; color: var(--muted); gap: 4px; }
+  select, input, textarea { font: inherit; color: var(--ink); background: var(--bg); border: 1px solid var(--line);
+                            border-radius: 6px; padding: 6px 8px; max-width: 100%; }
+  textarea { width: 100%; min-height: 7em; font-family: var(--mono); font-size: .9rem; }
+  button.go { background: var(--accent); color: var(--accent-ink); border: none; border-radius: 6px;
+              padding: 7px 16px; font: inherit; cursor: pointer; }
+  button.chip { background: var(--bg); color: var(--ink); border: 1px solid var(--line); border-radius: 999px;
+                padding: 3px 10px; font-size: .85rem; cursor: pointer; }
+  .muted { color: var(--muted); font-size: .9rem; }
+  .err { color: var(--warn); }
+  .scroll { overflow-x: auto; max-width: 100%; }
+  table { border-collapse: collapse; font-size: .9rem; }
+  th, td { padding: 4px 8px; border-bottom: 1px solid var(--line); text-align: right; white-space: nowrap; }
+  th { color: var(--muted); font-weight: 600; }
+  td.l, th.l { text-align: left; }
+  table.grid td.c { text-align: center; cursor: pointer; min-width: 3.2em; font-variant-numeric: tabular-nums; }
+  table.grid td.c.sel { outline: 2px solid var(--ink); outline-offset: -2px; }
+  table.grid td.c.blank { cursor: default; }
+  .lv0 { background: var(--b0); } .lv1 { background: var(--b1); } .lv2 { background: var(--b2); }
+  .lv3 { background: var(--b3); } .lv4 { background: var(--b4); color: #fff; } .lv5 { background: var(--b5); color: #fff; }
+  .split { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 20px; align-items: start; }
+  @media (max-width: 820px) { .split { grid-template-columns: 1fr; } }
+  .card { border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; background: var(--bg); }
+  .big { font-size: 2rem; font-weight: 700; line-height: 1.1; }
+  .bar { height: 8px; background: var(--b0); border-radius: 4px; overflow: hidden; }
+  .bar > div { height: 100%; background: var(--accent); }
+  #status { font-size: .85rem; color: var(--muted); margin-top: 8px; min-height: 1.4em; }
+  footer { margin-top: 28px; color: var(--muted); font-size: .85rem; }
+  code { font-family: var(--mono); font-size: .9em; }
+</style>
+</head>
+<body>
+<main>
+  <h1>How high should you bid in Setback?</h1>
+  <p class="lede">Bid charts for nine sets of house rules and the result of every possible 6-card hand,
+    from GPU simulations where every player looks ahead. Everything runs in your browser: the data are
+    Parquet files queried by <a href="https://duckdb.org/docs/api/wasm/overview">DuckDB-WASM</a>.
+    Source and method: <a href="https://github.com/John-Schreiber/setback-sim">setback-sim on GitHub</a>.</p>
+  <div id="status">Loading the query engine…</div>
+
+  <div class="tabs" role="tablist">
+    <button role="tab" aria-selected="true" data-tab="charts">Bid charts</button>
+    <button role="tab" aria-selected="false" data-tab="hand">Look up a hand</button>
+    <button role="tab" aria-selected="false" data-tab="sql">SQL</button>
+  </div>
+
+  <section class="panel" id="tab-charts">
+    <div class="row">
+      <label>House rules <select id="preset"></select></label>
+      <label>Players <select id="players"><option value="4">4 (two teams)</option><option value="6">6 (three teams)</option></select></label>
+    </div>
+    <p class="muted" id="summary"></p>
+    <div class="split">
+      <div>
+        <p class="muted">Each cell: the highest bid with expected points ≥ 0 for that trump holding, so how far
+          to go in an auction (often the best opening is lower; click a cell for every bid's value).
+          Rows: trump honors held; columns: other small trumps. * = shooting the moon also pays.
+          Blank = fewer than 200 hands seen.</p>
+        <div class="scroll"><table class="grid" id="grid"></table></div>
+      </div>
+      <div class="card" id="detail"><span class="muted">Click a cell for details.</span></div>
+    </div>
+  </section>
+
+  <section class="panel" id="tab-hand" hidden>
+    <p class="muted">4-point Setback (High, Low to whoever captures it, Jack, Game; bids 2–4). Every distinct
+      6-card hand was played as bidder against hundreds of random deals. Type six cards like
+      <code>AS JS 2S KH 9D 4C</code> (10 = <code>10</code> or <code>T</code>; suits S H D C or ♠ ♥ ♦ ♣).</p>
+    <div class="row">
+      <label>Your hand <input type="text" id="cards" value="AS JS 2S KH 9D 4C" size="24"></label>
+      <label>Players <select id="hplayers"><option value="4">4</option><option value="6">6</option></select></label>
+      <label>Other players <select id="hsearch"><option value="16">look ahead (search)</option><option value="0">rule-based</option></select></label>
+      <button class="go" id="lookup">Look up</button>
+    </div>
+    <div id="hand-out"></div>
+  </section>
+
+  <section class="panel" id="tab-sql" hidden>
+    <p class="muted">Tables: <code>presets</code>, <code>charts</code>, <code>chart_ev</code> (one row per bid),
+      <code>condensed</code>, and <code>allhands</code> (3.85 million rows: every hand, 4- and 6-handed, rule-based
+      and search players; a query reads only the parts it needs). Ctrl+Enter runs.</p>
+    <div class="row" id="examples"></div>
+    <textarea id="sql" spellcheck="false"></textarea>
+    <div class="row" style="margin-top:8px"><button class="go" id="run">Run</button><span class="muted" id="sqlinfo"></span></div>
+    <div class="scroll" id="sql-out"></div>
+  </section>
+
+  <footer>Charts: 4 million deals per preset (2 million 6-handed), 16 sampled deals per decision. MIT licensed.
+    Data: <a href="https://github.com/John-Schreiber/setback-sim/tree/main/charts">chart CSVs</a> ·
+    <a href="https://github.com/John-Schreiber/setback-sim/releases">every-hand tables</a> ·
+    Parquet: <a href="data/charts.parquet">charts</a>, <a href="data/chart_ev.parquet">chart_ev</a>,
+    <a href="data/allhands.parquet">allhands</a>.</footer>
+</main>
+
+<script type="module">
+import * as duckdb from "https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@1.32.0/+esm";
+
+const $ = (id) => document.getElementById(id);
+const status = (t, err) => { $("status").textContent = t; $("status").className = err ? "err" : ""; };
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const sqlStr = (s) => "'" + String(s).replace(/'/g, "''") + "'";
+const num = (v) => (typeof v === "bigint" ? Number(v) : v);
+const signed = (x) => (x >= 0 ? "+" : "") + x.toFixed(2);
+const TABLES = ["presets", "charts", "chart_ev", "condensed", "allhands"];
+const HONOR_ORDER = ["A", "K", "Q", "J", "offJ", "BJ", "LJ", "10", "9", "5", "3", "2"];
+
+// ---------------------------------------------------------------- DuckDB
+let conn;
+async function start() {
+  const bundle = await duckdb.selectBundle(duckdb.getJsDelivrBundles());
+  const workerUrl = URL.createObjectURL(new Blob([`importScripts("${bundle.mainWorker}");`], { type: "text/javascript" }));
+  const db = new duckdb.AsyncDuckDB(new duckdb.VoidLogger(), new Worker(workerUrl));
+  await db.instantiate(bundle.mainModule, bundle.pthreadWorker);
+  URL.revokeObjectURL(workerUrl);
+  // Parquet is read with HTTP range requests (only the row groups a query needs)
+  await db.open({ filesystem: { reliableHeadRequests: false, allowFullHTTPReads: true, forceFullHTTPReads: false } });
+  conn = await db.connect();
+  let present = {};
+  try { present = await (await fetch("data/tables.json")).json(); } catch (e) { /* no listing: core tables only */ }
+  for (const t of TABLES) {
+    if (t === "allhands" && !present.allhands) continue;
+    const url = new URL(`data/${t}.parquet`, location.href).href;
+    await db.registerFileURL(`${t}.parquet`, url, duckdb.DuckDBDataProtocol.HTTP, true);
+    await conn.query(`CREATE VIEW ${t} AS SELECT * FROM '${t}.parquet'`);
+  }
+  return present;
+}
+async function q(sql) {
+  return (await conn.query(sql)).toArray().map((r) => r.toJSON());
+}
+
+// ---------------------------------------------------------------- tabs
+for (const b of document.querySelectorAll(".tabs button")) {
+  b.addEventListener("click", () => {
+    for (const o of document.querySelectorAll(".tabs button")) o.setAttribute("aria-selected", o === b);
+    for (const s of document.querySelectorAll("section.panel")) s.hidden = s.id !== `tab-${b.dataset.tab}`;
+    try { localStorage.setItem("tab", b.dataset.tab); } catch (e) {}
+  });
+}
+
+// ---------------------------------------------------------------- bid charts
+const presets = {};
+// rows in chart order: stronger honors first, a holding before its weaker subsets
+const honorsKey = (h) => (h ? h.split(" ").map((x) => HONOR_ORDER.indexOf(x)) : []).concat([99]);
+function cmpKeys(a, b) {
+  for (let i = 0; i < Math.min(a.length, b.length); i++) if (a[i] !== b[i]) return a[i] - b[i];
+  return a.length - b.length;
+}
+const level = (bid, p) => (bid ? 1 + Math.round(4 * (bid - p.min_bid) / Math.max(1, p.max_bid - p.min_bid)) : 0);
+async function drawChart() {
+  const preset = $("preset").value, players = +$("players").value, p = presets[preset];
+  $("summary").textContent = p.summary;
+  const rows = await q(`SELECT honors, small, hands, max_bid, ev_moon FROM charts
+                        WHERE preset = ${sqlStr(preset)} AND players = ${players}`);
+  const grid = $("grid");
+  $("detail").innerHTML = `<span class="muted">Click a cell for details.</span>`;
+  if (!rows.length) {
+    grid.innerHTML = `<tr><td class="l muted">No ${players}-handed chart for these rules (a ${p.deal_size}-card deal needs more cards).</td></tr>`;
+    return;
+  }
+  const cell = new Map(), hons = new Set();
+  let maxSmall = 0;
+  for (const r of rows) {
+    r.small = num(r.small); r.hands = num(r.hands); r.max_bid = num(r.max_bid);
+    cell.set(`${r.honors}|${r.small}`, r);
+    if (r.hands >= 200) { hons.add(r.honors); maxSmall = Math.max(maxSmall, r.small); }
+  }
+  const cols = [...Array(maxSmall + 1).keys()];
+  const order = [...hons].sort((a, b) => cmpKeys(honorsKey(a), honorsKey(b)));
+  let html = `<thead><tr><th class="l">trump honors</th>${cols.map((s) => `<th>+${s}</th>`).join("")}</tr></thead><tbody>`;
+  for (const h of order) {
+    html += `<tr><th class="l">${esc(h || "(none)")}</th>`;
+    for (const s of cols) {
+      const r = cell.get(`${h}|${s}`);
+      if (!r || r.hands < 200) { html += `<td class="c blank"></td>`; continue; }
+      const star = r.ev_moon != null && r.ev_moon > 0 ? "*" : "";
+      html += `<td class="c lv${level(r.max_bid, p)}" data-h="${esc(h)}" data-s="${s}">${r.max_bid || "pass"}${star}</td>`;
+    }
+    html += "</tr>";
+  }
+  grid.innerHTML = html + "</tbody>";
+}
+$("grid").addEventListener("click", async (e) => {
+  const td = e.target.closest("td.c");
+  if (!td || td.classList.contains("blank")) return;
+  for (const o of $("grid").querySelectorAll(".sel")) o.classList.remove("sel");
+  td.classList.add("sel");
+  const where = `preset = ${sqlStr($("preset").value)} AND players = ${+$("players").value}
+                 AND honors = ${sqlStr(td.dataset.h)} AND small = ${+td.dataset.s}`;
+  const [r] = await q(`SELECT hands, avg, max_bid, ev_moon FROM charts WHERE ${where}`);
+  const evs = (await q(`SELECT bid, ev FROM chart_ev WHERE ${where} ORDER BY bid`)).map((x) => ({ bid: num(x.bid), ev: x.ev }));
+  const best = evs.reduce((a, b) => (b.ev > a.ev ? b : a));
+  const top = Math.max(...evs.map((x) => Math.abs(x.ev)), 1e-9);
+  const s = +td.dataset.s, ceiling = num(r.max_bid);
+  $("detail").innerHTML = `
+    <div class="muted">${esc(td.dataset.h || "no honors")} + ${s} small trump${s === 1 ? "" : "s"} · ${num(r.hands).toLocaleString()} hands</div>
+    <div class="big">${ceiling ? "up to " + ceiling : "pass"}</div>
+    <p class="muted">Average ${r.avg.toFixed(2)} points taken. Most valuable bid: ${best.ev >= 0 ? best.bid + " (" + signed(best.ev) + ")" : "none"}.</p>
+    <table><tr><th class="l">bid</th><th>expected points</th><th></th></tr>
+    ${evs.map((x) => `<tr><td class="l">${x.bid}</td><td>${signed(x.ev)}</td>
+      <td style="width:110px"><div class="bar"><div style="width:${Math.max(0, 100 * x.ev / top)}%"></div></div></td></tr>`).join("")}
+    ${r.ev_moon != null ? `<tr><td class="l">moon</td><td>${signed(r.ev_moon)}</td><td></td></tr>` : ""}
+    </table>`;
+});
+
+// ---------------------------------------------------------------- hand lookup
+const RANKS = "23456789TJQKA", SUITS = "SHDC", SYM = "♠♥♦♣";
+function parseHand(text) {
+  const toks = text.toUpperCase().replace(/♠/g, "S").replace(/♥/g, "H").replace(/♦/g, "D").replace(/♣/g, "C")
+    .replace(/10/g, "T").split(/[\s,]+/).filter(Boolean);
+  const cards = toks.map((t) => {
+    const r = RANKS.indexOf(t[0]), s = SUITS.indexOf(t[1]);
+    if (t.length !== 2 || r < 0 || s < 0) throw new Error(`can't read card "${t}"`);
+    return [r, s];
+  });
+  if (cards.length !== 6) throw new Error(`need 6 cards, got ${cards.length}`);
+  if (new Set(cards.map(([r, s]) => r + 13 * s)).size !== 6) throw new Error("a card appears twice");
+  return cards;
+}
+// The every-hand tables store each hand with its suits relabeled: the suit with the largest
+// 13-bit rank mask becomes table suit 0, and so on (setback.canonical_key).
+function canonical(cards) {
+  const masks = [0, 0, 0, 0];
+  for (const [r, s] of cards) masks[s] |= 1 << r;
+  const order = [0, 1, 2, 3].sort((a, b) => masks[b] - masks[a] || a - b);
+  let key = 0n;
+  order.forEach((s, i) => { key |= BigInt(masks[s]) << BigInt(13 * i); });
+  return { key, order };
+}
+async function lookup() {
+  const out = $("hand-out");
+  let cards;
+  try { cards = parseHand($("cards").value); } catch (e) { out.innerHTML = `<p class="err">${esc(e.message)}</p>`; return; }
+  const { key, order } = canonical(cards);
+  const players = +$("hplayers").value, search = +$("hsearch").value;
+  const rows = await q(`SELECT trump, deals, mean, p2, ev2, p3, ev3, p4, ev4 FROM allhands
+                        WHERE players = ${players} AND search = ${search} AND key = ${key}`);
+  if (!rows.length) { out.innerHTML = `<p class="err">Hand not found.</p>`; return; }
+  const r = rows[0];
+  const trump = order[SUITS.indexOf(r.trump)];
+  const bids = [2, 3, 4].map((b) => ({ b, p: r[`p${b}`], ev: r[`ev${b}`] }));
+  const ok = bids.filter((x) => x.ev >= 0);
+  const ceiling = ok.length ? ok[ok.length - 1].b : 0;
+  const best = bids.reduce((a, x) => (x.ev > a.ev ? x : a));
+  const shown = cards.slice().sort((a, b) => a[1] - b[1] || b[0] - a[0])
+    .map(([rk, s]) => (RANKS[rk] === "T" ? "10" : RANKS[rk]) + SYM[s]).join(" ");
+  out.innerHTML = `
+    <div class="split"><div>
+      <p>${esc(shown)} · ${players}-handed · trump <b>${SYM[trump]}</b> · ${num(r.deals)} deals</p>
+      <table><tr><th class="l">bid</th><th>makes it</th><th>expected points</th></tr>
+      ${bids.map((x) => `<tr><td class="l">${x.b}</td><td>${(100 * x.p).toFixed(0)}%</td><td>${signed(x.ev)}</td></tr>`).join("")}
+      </table>
+      <p class="muted" style="margin-top:10px">Average ${r.mean.toFixed(2)} of 4 points taken. "Makes it" = takes at least
+        the bid; expected points count the points taken when made and minus the bid when set.</p>
+    </div><div class="card">
+      <div class="muted">Go up to</div><div class="big">${ceiling || "pass"}</div>
+      <p class="muted">Most valuable bid: ${best.ev >= 0 ? best.b + " (" + signed(best.ev) + ")" : "none (pass)"}.</p>
+    </div></div>`;
+}
+$("lookup").addEventListener("click", lookup);
+$("cards").addEventListener("keydown", (e) => { if (e.key === "Enter") lookup(); });
+
+// ---------------------------------------------------------------- SQL
+const EXAMPLES = {
+  "Charts by preset": `SELECT preset, players, count(*) AS holdings, sum(hands) AS hands,
+       round(avg(max_bid), 2) AS avg_ceiling
+FROM charts GROUP BY ALL ORDER BY preset, players;`,
+  "Weakest 3-bids (setback4)": `SELECT honors, small, hands, round(ev, 2) AS ev3
+FROM chart_ev
+WHERE preset = 'setback4' AND players = 4 AND bid = 3 AND ev >= 0 AND hands >= 1000
+ORDER BY ev LIMIT 20;`,
+  "Share of deals worth a 4-bid": `SELECT players, count(*) AS distinct_hands,
+       round(100 * sum(weight * (ev4 >= 0)::INT) / sum(weight), 2) AS pct_of_deals
+FROM allhands WHERE search = 16 GROUP BY players ORDER BY players;`,
+  "Search vs rule-based players": `SELECT a.players, round(avg(s.mean - a.mean), 4) AS search_minus_rules,
+       round(avg(abs(s.ev2 - a.ev2)), 3) AS mean_abs_ev2_gap
+FROM allhands a JOIN allhands s USING (players, key)
+WHERE a.search = 0 AND s.search = 16 GROUP BY a.players;`,
+};
+for (const [name, sql] of Object.entries(EXAMPLES)) {
+  const b = document.createElement("button");
+  b.className = "chip"; b.textContent = name;
+  b.addEventListener("click", () => { $("sql").value = sql; runSql(); });
+  $("examples").appendChild(b);
+}
+$("sql").value = EXAMPLES["Charts by preset"];
+async function runSql() {
+  const out = $("sql-out"), t0 = performance.now();
+  $("sqlinfo").textContent = "running…";
+  try {
+    const res = await conn.query($("sql").value);
+    const cols = res.schema.fields.map((f) => f.name), rows = res.toArray();
+    const fmt = (v) => (v == null ? "" : typeof v === "number" && !Number.isInteger(v) ? v.toFixed(4) : String(v));
+    out.innerHTML = `<table><thead><tr>${cols.map((c) => `<th>${esc(c)}</th>`).join("")}</tr></thead><tbody>${rows.slice(0, 1000)
+      .map((r) => `<tr>${cols.map((c) => `<td>${esc(fmt(r[c]))}</td>`).join("")}</tr>`).join("")}</tbody></table>`;
+    $("sqlinfo").textContent = `${rows.length.toLocaleString()} rows${rows.length > 1000 ? " (first 1,000 shown)" : ""} in ${((performance.now() - t0) / 1000).toFixed(2)}s`;
+  } catch (e) {
+    out.innerHTML = ""; $("sqlinfo").innerHTML = `<span class="err">${esc(e.message)}</span>`;
+  }
+}
+$("run").addEventListener("click", runSql);
+$("sql").addEventListener("keydown", (e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) runSql(); });
+
+// ---------------------------------------------------------------- start
+try {
+  const present = await start();
+  for (const p of await q("SELECT * FROM presets")) presets[p.preset] = Object.fromEntries(Object.entries(p).map(([k, v]) => [k, num(v)]));
+  $("preset").innerHTML = Object.keys(presets).map((p) => `<option>${esc(p)}</option>`).join("");
+  $("preset").addEventListener("change", drawChart);
+  $("players").addEventListener("change", drawChart);
+  await drawChart();
+  if (!present.allhands) {
+    $("lookup").disabled = true;
+    $("hand-out").innerHTML = `<p class="muted">The every-hand table isn't included in this build.</p>`;
+  }
+  status("Ready.");
+  try { const t = localStorage.getItem("tab"); if (t) document.querySelector(`.tabs button[data-tab="${t}"]`)?.click(); } catch (e) {}
+  window.__ready = true;
+} catch (e) {
+  status("Couldn't start the query engine: " + e.message, true);
+  window.__error = String(e);
+}
+</script>
+</body>
+</html>

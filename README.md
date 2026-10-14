@@ -4,6 +4,10 @@ How high should you bid in **Setback** (also called **Pitch**)? This project ans
 playing out **every possible 6-card hand** with computer players that look ahead, on CPU or
 GPU, and turning the results into bidding charts.
 
+**Browse the results:** [john-schreiber.github.io/setback-sim](https://john-schreiber.github.io/setback-sim/)
+has every chart, a lookup for any 6-card hand, and a SQL console over all the data, running in
+your browser (Parquet files queried by DuckDB-WASM).
+
 **Just want the charts?** [`bidchart_condensed.md`](bidchart_condensed.md) has a compact
 bidding chart for 4-handed and 6-handed play: for each trump holding, how many small trumps you
 need to bid 2, 3 or 4. [`charts/`](charts/README.md) has a chart for every house-rule preset
@@ -76,14 +80,15 @@ To spread big studies over several GPU machines, see [docs/distributed.md](docs/
 | `cardsim/pitch/game.py` | whole games with an auction under any preset |
 | `cardsim/pitch/fit_trump.py` | per-preset weights for choosing trump |
 | `cardsim/dist/` | coordinator and workers for spreading studies over several machines |
+| `site/` | the stats site: `build.py` writes the Parquet data, a GitHub Actions workflow publishes it |
 
 The every-hand tables (about 15 MB each) are published as
 [release assets](../../releases) rather than kept in the repo.
 
 ## Roadmap
 
-House rules and the coordinator/worker setup are done. Next: Spades and Hearts, and a
-browsable stats site. See [ROADMAP.md](ROADMAP.md).
+House rules, the coordinator/worker setup and the stats site are done. Next: Spades and
+Hearts. See [ROADMAP.md](ROADMAP.md).
 
 ## License
 

@@ -1,0 +1,46 @@
+# Stats site: build the Parquet data and page (site/build.py) and publish to GitHub Pages.
+# The every-hand tables come from the latest release's assets.
+name: Stats site
+
+on:
+  push:
+    branches: [main]
+    paths: ["site/**", "charts/**", "condensed_*.csv", "cardsim/pitch/rules.py", ".github/workflows/pages.yml"]
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - name: Every-hand tables from the latest release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release download --pattern 'allhands_*.csv.gz' --dir tables || echo "no release tables; building without them"
+      - name: Build
+        run: uv run --extra site python site/build.py --tables tables
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site/_build
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
