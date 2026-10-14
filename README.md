@@ -6,7 +6,11 @@ GPU, and turning the results into bidding charts.
 
 **Just want the charts?** [`bidchart_condensed.md`](bidchart_condensed.md) has a compact
 bidding chart for 4-handed and 6-handed play: for each trump holding, how many small trumps you
-need to bid 2, 3 or 4.
+need to bid 2, 3 or 4. [`charts/`](charts/README.md) has a chart for every house-rule preset
+(6-point, 7-point, 10-point, Roadhouse, Draw Pitch, Nine-Five and more), each built from 4
+million deals (2 million 6-handed). A chart cell is the *highest* bid that still has non-negative expected points:
+how far to go in an auction, not necessarily the best opening bid (each chart's `.csv` has the
+expected points of every bid).
 
 ## What it found (4-handed unless noted)
 
@@ -28,15 +32,19 @@ leads first and that card sets trump; you may always trump in. 4-handed is two t
 
 ## How it works
 
-- **Engines.** Three engines play identical games: a pure-Python reference engine
-  (`setback.py`), a compiled CPU engine (`setback_fast.py`, Numba) and a CUDA GPU engine
-  (`setback_gpu.py`). Both compiled engines share the rules in `engine_core.py`. The tests check
-  that rule-based play matches the reference engine card for card, and that the CPU and GPU
-  engines match each other.
+- **Engines.** `cardsim/pitch` plays any of the house-rule presets in `cardsim/pitch/rules.py`
+  from one set of rules (`core.py`) compiled twice: for the CPU with Numba (`fast.py`) and for
+  NVIDIA GPUs with CUDA (`gpu.py`). Cards are bits in a 64-bit mask, and per-trump lookup tables
+  let the off-jack and jokers count as trumps on the same code path. The original 4-point
+  engines (`setback.py`, a pure-Python reference; `setback_fast.py`; `setback_gpu.py`) remain as
+  the reference. The tests check that rule-based play matches the reference card for card, that
+  an independent rules oracle accepts every game under every preset, and that CPU and GPU play
+  bit-identical games, search included.
 - **Players.** Rule-based players follow hand-written rules, tuned by finding where search
   disagreed with them and testing each fix head-to-head. Search players try each legal card
-  against many guesses of the hidden cards and keep the best; on an RTX 3070 they play about
-  29,000 4-handed games per second.
+  against many guesses of the hidden cards and keep the best. With 16 guesses per decision,
+  4-handed, they play about 240,000 games per second on an RTX 3070, 22,000 on a GTX 1060 and
+  4,600 on a Ryzen 5600X's CPU.
 - **Every hand.** Up to suit relabeling, the 20,358,520 possible 6-card hands reduce to
   962,988. `allhands.py` plays each one as bidder against hundreds of random deals and saves
   the per-hand results. `condense.py` turns those into the condensed charts.
@@ -49,7 +57,10 @@ With [uv](https://docs.astral.sh/uv/):
 uv sync --extra gpu                 # gpu needs an NVIDIA card; leave it off for CPU only
 uv run python setback.py hand "AS JS 2S KH 9D 4C" -p 4 --search 16 --engine gpu
 uv run python setback.py lookup "AS JS 2S KH 9D 4C" -p 6     # needs the every-hand tables
+uv run python -m cardsim.pitch.bidchart --preset ten_point -p 4    # one preset's bid chart
+uv run python -m cardsim.pitch.game --preset roadhouse --pairs cheap:table   # whole games
 uv run python tests/test_pitch_core.py && uv run python tests/test_pitch_variants.py
+uv run python tests/test_pitch_game.py && uv run python tests/test_pitch_gpu.py
 ```
 
 To spread big studies over several GPU machines, see [docs/distributed.md](docs/distributed.md).
@@ -61,15 +72,18 @@ To spread big studies over several GPU machines, see [docs/distributed.md](docs/
 | `auction.py` | whole games with an auction: bidding strategies, stealing, dealer's privilege, 11-bids |
 | `experiments.py`, `fit_trump.py`, `sweep.py` | targeted studies: weakest profitable bids, bare Ace vs two trumps, trump-choice weights, sweep chances |
 | `condense.py` | condensed bid charts from the tables |
+| `cardsim/pitch/bidchart.py` | bid charts for any preset, on this GPU or the cluster (`--cluster URL`) |
+| `cardsim/pitch/game.py` | whole games with an auction under any preset |
+| `cardsim/pitch/fit_trump.py` | per-preset weights for choosing trump |
+| `cardsim/dist/` | coordinator and workers for spreading studies over several machines |
 
 The every-hand tables (about 15 MB each) are published as
 [release assets](../../releases) rather than kept in the repo.
 
 ## Roadmap
 
-More house rules (jokers, off-jack, 10-point and Nine-Five), Spades and Hearts, a
-coordinator/worker setup for running across several GPU machines, and a browsable stats
-site. See [ROADMAP.md](ROADMAP.md).
+House rules and the coordinator/worker setup are done. Next: Spades and Hearts, and a
+browsable stats site. See [ROADMAP.md](ROADMAP.md).
 
 ## License
 

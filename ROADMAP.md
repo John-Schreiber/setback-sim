@@ -3,7 +3,13 @@
 Four parts, in order. Each lands with tests showing it matches the reference engine, as
 the current engines do.
 
-## 1. House rules
+## 1. House rules (done)
+
+Done: `cardsim/pitch` with nine presets (setback4, setback4_lowdealt, setback4_must_follow,
+six_point, seven_point, ten_point, roadhouse, draw_pitch, nine_five), per-preset trump-choice
+weights, bid charts for each in [`charts/`](charts/README.md), and whole games with an auction.
+Not yet: a Maryland Jack preset (its exact-bid bonus is supported), widow/kitty deals, blind
+smudge, and the rare variants below.
 
 Rules become a config instead of being fixed in code, and every named variant is a preset.
 **Done when:** the default preset reproduces today's results exactly (same deals, same
@@ -43,7 +49,11 @@ search player) from what is game-specific (bidding, scoring, rule-based players)
 **Done when:** each game has its own reference engine, compiled engine and tests, plus a first
 study (Spades: how many tricks to bid; Hearts: which cards to pass).
 
-## 3. Coordinator and worker images
+## 3. Coordinator and worker images (done)
+
+Done: `cardsim/dist` and `docker/`, described in [docs/distributed.md](docs/distributed.md).
+Workers run in Docker (CUDA 13, or CUDA 12 for older drivers) or natively on Windows; a study
+split across CPU and GPU workers matches a single run exactly.
 
 - **Coordinator:** a small HTTP service with a job queue (SQLite). It splits a study into jobs of
   **5–10 minutes** each, hands them out, stores results, and re-issues jobs whose worker
