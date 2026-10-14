@@ -13,21 +13,24 @@ Kinds:
             (optional limit: only the first `limit` classes)
             -> own: bidding team's points, shape (classes, deals), int8
 """
-import glob
 import hashlib
 import os
 
 import numpy as np
 
 KINDS = ("survey", "allhands")
+COMPUTE_FILES = ["cardsim/cards.py", "cardsim/hands.py", "cardsim/pitch/rules.py", "cardsim/pitch/tables.py",
+                 "cardsim/pitch/core.py", "cardsim/pitch/fast.py", "cardsim/pitch/gpu.py",
+                 "cardsim/dist/tasks.py", "setback.py", "trump_weights.py"]
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 
 def code_version():
-    """Fingerprint of the simulator code: a study's slices must all come from the same."""
+    """Fingerprint of the code that decides how games are played: a study's slices must
+    all come from the same. Tools that only submit studies or read results (client,
+    charts, coordinator) are left out, so changing them needs no worker redeploy."""
     h = hashlib.sha256()
-    files = sorted(glob.glob(os.path.join(ROOT, "cardsim", "**", "*.py"), recursive=True))
-    files += [os.path.join(ROOT, "setback.py"), os.path.join(ROOT, "trump_weights.py")]
+    files = [os.path.join(ROOT, f) for f in COMPUTE_FILES]
     for fn in files:
         with open(fn, "rb") as f:
             source = f.read().replace(b"\r\n", b"\n")  # same fingerprint on Windows and Linux

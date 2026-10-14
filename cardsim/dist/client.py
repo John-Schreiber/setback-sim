@@ -11,6 +11,19 @@ import os
 from cardsim.dist.worker import Client
 
 
+def token_from_env():
+    """COORDINATOR_TOKEN from the environment, else from docker/.env (git-ignored)."""
+    tok = os.environ.get("COORDINATOR_TOKEN")
+    if tok:
+        return tok
+    fn = os.path.join(os.path.dirname(__file__), "..", "..", "docker", ".env")
+    if os.path.exists(fn):
+        for line in open(fn):
+            if line.startswith("COORDINATOR_TOKEN="):
+                return line.split("=", 1)[1].strip()
+    return None
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--url", default=os.environ.get("COORDINATOR_URL", "http://localhost:8700"))
@@ -33,7 +46,7 @@ def main():
     f.add_argument("study")
     f.add_argument("-o", "--out")
     a = ap.parse_args()
-    c = Client(a.url, os.environ.get("COORDINATOR_TOKEN"))
+    c = Client(a.url, token_from_env())
     if a.cmd == "submit":
         from cardsim.dist.tasks import study_params
         extra = {"hands": a.hands} if a.kind == "survey" else {"deals": a.deals}

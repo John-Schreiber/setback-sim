@@ -11,6 +11,7 @@ the bid), plus a moon bid where the rules have one. The chart gives the highest 
 expected points >= 0, by honors (rows) and number of small trumps (columns).
 
     .venv/Scripts/python -m cardsim.pitch.bidchart --preset ten_point -p 4
+    .venv/Scripts/python -m cardsim.pitch.bidchart --cluster http://localhost:8700   # all presets, on the cluster
 """
 import argparse
 import os
@@ -60,11 +61,18 @@ def features(dealt, trumps, rules, tab):
 
 
 def build(preset, nplayers, nhands, search, seed=2027):
+    """Run the survey on this machine's GPU and aggregate it."""
     rules = PitchRules.preset(preset)
     game = fast.Game(rules, nplayers)
     t0 = time.time()
     s = np.full(game.nteams, search, np.int64)
     out = gpu.survey(nhands, game, s, seed=seed)
+    return rules, game, aggregate(rules, game, out), time.time() - t0, nhands
+
+
+def aggregate(rules, game, out):
+    """Survey rows (fast.S_* columns) -> one row per (honors, small trumps) group with the
+    expected points of every bid and the highest profitable bid."""
     labels, small = features(out[:, fast.S_DEALT], out[:, fast.S_TRUMP], rules, game.tab)
     own = out[:, fast.S_OWN]
     moon_ok = (out[:, fast.S_SWEEP] == 1) & (own == rules.points_total)
@@ -80,8 +88,52 @@ def build(preset, nplayers, nhands, search, seed=2027):
     g["max_bid"] = np.where(ok.any(axis=1), np.array(bids)[np.where(ok, np.arange(len(bids)), -1).max(axis=1)], 0)
     if rules.moon_bid:
         g["ev_moon"] = rules.moon_value * (2 * g.p_moon - 1)
-    g = g[g.hands >= 1]
-    return rules, game, g, time.time() - t0, nhands
+    return g[g.hands >= 1]
+
+
+def write_chart(rules, nplayers, g, nhands, search):
+    base = os.path.join(OUT, f"{rules.name}_{nplayers}p")
+    g.to_csv(base + ".csv", index=False, float_format="%.4f")
+    with open(base + ".md", "w", encoding="utf-8") as f:
+        f.write(markdown(rules, nplayers, g, nhands, search))
+    return base + ".md"
+
+
+def run_cluster(url, jobs, search, seed, poll=60):
+    """Submit one survey study per (preset, players, hands) to the coordinator (or reuse
+    an existing one with the same settings and code), wait, fetch, and write the charts."""
+    import io
+    from cardsim.dist.client import token_from_env
+    from cardsim.dist.tasks import code_version, study_params
+    from cardsim.dist.worker import Client
+    c = Client(url, token_from_env())
+    existing = {(s["name"], s["params"].get("code")): s["id"] for s in c.get("/studies")}
+    ids = {}
+    for preset, n, nh in jobs:
+        name = f"bidchart {preset} {n}p {nh} deals search {search} seed {seed}"
+        sid = existing.get((name, code_version()))
+        if sid is None:
+            params = study_params("survey", preset, n, search, seed, hands=nh)
+            sid = c.post("/studies", {"kind": "survey", "params": params, "engine": "any", "name": name,
+                                      "calib": 4000})["id"]
+        ids[(preset, n, nh)] = sid
+    print(f"{len(ids)} studies on {url}", flush=True)
+    t0 = time.time()
+    while True:
+        st = {s["id"]: s for s in c.get("/studies")}
+        done = sum(st[i]["done"] for i in ids.values())
+        total = sum(st[i]["total"] for i in ids.values())
+        if all(st[i]["complete"] for i in ids.values()):
+            break
+        print(f"  {done:,}/{total:,} deals ({100 * done / total:.1f}%) after {(time.time() - t0) / 60:.1f} min",
+              flush=True)
+        time.sleep(poll)
+    for (preset, n, nh), sid in ids.items():
+        rows = np.load(io.BytesIO(c.get(f"/studies/{sid}/result")))["rows"]
+        rules = PitchRules.preset(preset)
+        g = aggregate(rules, fast.Game(rules, n), rows)
+        print(f"{preset} {n}-handed: {nh:,} deals -> {write_chart(rules, n, g, nh, search)}", flush=True)
+    write_index()
 
 
 def strength_key(label, rules):
@@ -125,22 +177,26 @@ def main():
     ap.add_argument("-p", "--players", type=int, nargs="+", default=[4, 6])
     ap.add_argument("--hands", type=int, default=1_000_000)
     ap.add_argument("--search", type=int, default=16)
+    ap.add_argument("--seed", type=int, default=2027)
+    ap.add_argument("--cluster", help="coordinator URL: run the surveys on the cluster instead of this GPU")
     a = ap.parse_args()
     warnings.filterwarnings("ignore")
     os.makedirs(OUT, exist_ok=True)
     presets = list(PRESETS) if a.preset == "all" else [a.preset]
+    jobs = []
     for preset in presets:
         for n in a.players:
             r = PitchRules.preset(preset)
             if n * r.deal_size > 52 + r.jokers:
                 continue
-            nh = a.hands if n == 4 else a.hands // 2
-            rules, game, g, secs, nh = build(preset, n, nh, a.search)
-            base = os.path.join(OUT, f"{preset}_{n}p")
-            g.to_csv(base + ".csv", index=False, float_format="%.4f")
-            with open(base + ".md", "w", encoding="utf-8") as f:
-                f.write(markdown(rules, n, g, nh, a.search))
-            print(f"{preset} {n}-handed: {nh:,} deals in {secs:.0f}s -> {base}.md", flush=True)
+            jobs.append((preset, n, a.hands if n == 4 else a.hands // 2))
+    if a.cluster:
+        run_cluster(a.cluster, jobs, a.search, a.seed)
+        return
+    for preset, n, nh in jobs:
+        rules, game, g, secs, nh = build(preset, n, nh, a.search, a.seed)
+        print(f"{preset} {n}-handed: {nh:,} deals in {secs:.0f}s -> {write_chart(rules, n, g, nh, a.search)}",
+              flush=True)
     write_index()
 
 
