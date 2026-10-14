@@ -613,8 +613,7 @@ def rollout(hands, tp, tc, tlen, leader, gone, won, voids, t, team, n, track, ru
 #
 # Search draws its random numbers from a small xoroshiro128+ generator with one stream per
 # (game, sample slot), seeded by a hash of (study seed, global game index * slots + slot),
-# and deals the hidden cards with the same integer-only Fisher-Yates shuffle on CPU and
-# GPU. So search plays identically on either, and a study can mix CPU and GPU workers.
+# and deals the hidden cards with the same integer-only sampler on CPU and GPU. So search plays identically on either, and a study can mix CPU and GPU workers.
 # states: uint64 array (streams, 2).
 
 @kernel_fn
