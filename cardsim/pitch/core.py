@@ -613,8 +613,7 @@ def rollout(hands, tp, tc, tlen, leader, gone, won, voids, t, team, n, track, ru
 #
 # Search draws its random numbers from a small xoroshiro128+ generator with one stream per
 # (game, sample slot), seeded by a hash of (study seed, global game index * slots + slot),
-# and deals the hidden cards with the same integer-only Fisher-Yates shuffle on CPU and
-# GPU. So search plays identically on either, and a study can mix CPU and GPU workers.
+# and deals the hidden cards with the same integer-only sampler on CPU and GPU. So search plays identically on either, and a study can mix CPU and GPU workers.
 # states: uint64 array (streams, 2).
 
 @kernel_fn
@@ -649,16 +648,44 @@ def rng_next(states, i):
 
 @kernel_fn
 def rng_below(states, i, m):
-    """Integer in [0, m) from stream i (integer math only, so CPU and GPU agree)."""
-    return np.int64((rng_next(states, i) >> np.uint64(11)) % np.uint64(m))
+    """Integer in [0, m) from stream i, m < 65536 (integer math only, so CPU and GPU agree).
+    Same value as (r >> 11) % m, computed from the two 32-bit halves: GPUs emulate 64-bit
+    division slowly, 32-bit remainders are cheap."""
+    x = rng_next(states, i) >> np.uint64(11)
+    mm = np.uint32(m)
+    hi = np.uint32(x >> np.uint64(32)) % mm
+    lo = np.uint32(x & np.uint64(0xFFFFFFFF)) % mm
+    p = np.uint32(np.uint32(0xFFFFFFFF) % mm + np.uint32(1))  # 2^32 mod m (up to one m)
+    return np.int64(np.uint32(np.uint32(hi * p + lo) % mm))
 
 
 @kernel_fn
-def sample_world(me, hands, unseen, nun, voids, n, t, tab, out, perm, used, order, states, si):
-    """Guess where the cards player `me` can't see are: deal `unseen` to the other players
-    (honoring known effective-suit voids) into `out`, using random stream si. Leftover
-    unseen cards are the undealt stock. perm/used (len >= nun) and order (len >= n) are
-    scratch space."""
+def select_bit(m, k):
+    """Position of the k-th (0-based) set bit of m (m has more than k bits, bit 63 clear):
+    a six-step binary search on bit counts."""
+    pos = 0
+    x = m
+    w = 32
+    while w:
+        low = x & ((np.int64(1) << np.int64(w)) - 1)
+        c = popcount(low)
+        if k >= c:
+            k -= c
+            x >>= np.int64(w)
+            pos += w
+        else:
+            x = low
+        w >>= 1
+    return pos
+
+
+@kernel_fn
+def sample_world(me, hands, unseen, voids, n, t, tab, out, order, states, si):
+    """Guess where the cards player `me` can't see are: deal the `unseen` mask to the other
+    players (honoring known effective-suit voids) into `out`, using random stream si.
+    Each player, most constrained first, draws uniformly from the unseen cards left that
+    their voids allow; what nobody draws is the undealt stock. Work is proportional to the
+    cards dealt, not to the unseen pool. order (len >= n) is scratch space."""
     out[me] = hands[me]
     k = 0
     for nv in range(4, -1, -1):  # most constrained first
@@ -667,34 +694,27 @@ def sample_world(me, hands, unseen, nun, voids, n, t, tab, out, perm, used, orde
                 order[k] = q
                 k += 1
     for attempt in range(31):
-        for i in range(nun):
-            perm[i] = i
-            used[i] = 0
-        for i in range(nun - 1, 0, -1):  # Fisher-Yates
-            j = rng_below(states, si, i + 1)
-            tmp = perm[i]
-            perm[i] = perm[j]
-            perm[j] = tmp
+        rest = unseen
         ok = True
         for jj in range(n - 1):
             q = order[jj]
             need = popcount(hands[q])
-            got = 0
-            m = np.int64(0)
-            for i in range(nun):
-                if got == need:
-                    break
-                if used[perm[i]]:
-                    continue
-                d = unseen[perm[i]]
-                if attempt < 30 and ((voids[q] >> tab[t, F_ESUIT, d]) & 1):
-                    continue  # last attempt ignores voids (shouldn't be needed)
-                m |= bit(d)
-                used[perm[i]] = 1
-                got += 1
-            out[q] = m
-            if got < need:
+            allowed = rest
+            if attempt < 30:  # last attempt ignores voids (shouldn't be needed)
+                for v in range(4):
+                    if (voids[q] >> v) & 1:
+                        allowed &= ~tab[t, F_ESM, v]
+            avail = popcount(allowed)
+            if avail < need:
                 ok = False
                 break
+            m = np.int64(0)
+            for _ in range(need):
+                b = bit(select_bit(allowed, rng_below(states, si, avail)))
+                m |= b
+                allowed &= ~b
+                avail -= 1
+            out[q] = m
+            rest &= ~m
         if ok:
             return

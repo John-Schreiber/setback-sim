@@ -249,35 +249,28 @@ def search_values(p, hands, tp, tc, tlen, gone, won, voids, t, team, n, track, r
     seen = gone | hand
     for i in range(tlen):
         seen |= bit(tc[i])
-    unseen = np.empty(54, np.int64)
-    nun = 0
-    rest = gf[G_DECK] & ~seen
-    while rest:
-        c = lowest(rest)
-        rest &= rest - 1
-        unseen[nun] = c
-        nun += 1
+    unseen = gf[G_DECK] & ~seen
     lead_p = tp[0] if tlen else p
     world = np.zeros(n, np.int64)
-    perm = np.empty(54, np.int64)
-    used = np.zeros(54, np.int8)
     order = np.empty(n, np.int64)
+    hs, vs, tp2, tc2 = np.empty(n, np.int64), np.empty(n, np.int64), np.empty(n, np.int64), np.empty(n, np.int64)
+    w = np.empty(won.shape[0], np.int64)
     for s in range(nsamp):
-        sample_world(p, hands, unseen, nun, voids, n, t, tab, world, perm, used, order, states, s)
+        sample_world(p, hands, unseen, voids, n, t, tab, world, order, states, s)
         x = opts
         while x:
             c = lowest(x)
             x &= x - 1
-            hs = world.copy()
+            hs[:] = world  # scratch reused across play-outs (no allocation per play-out)
             hs[p] = hand & ~bit(c)
-            vs = voids.copy()
+            vs[:] = voids
             if track:
                 note_void(vs, p, tc, tlen, c, t, tab, gf)
-            tp2 = tp.copy()
-            tc2 = tc.copy()
+            tp2[:] = tp
+            tc2[:] = tc
             tp2[tlen] = p
             tc2[tlen] = c
-            w = won.copy()
+            w[:] = won
             last = rollout(hs, tp2, tc2, tlen + 1, lead_p, gone, w, vs, t, team, n, track, rules, tab, gf)
             totals[c] += search_value(w, t, team[p], last, tab, gf)
     return opts, totals
