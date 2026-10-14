@@ -371,3 +371,25 @@ def play_game_log(hands0, bidder, t, team, nteams, track, rules, search, tab, gf
     sc = np.zeros(nteams, np.int64)
     score_into(won, t, lo_team, last_team, sc, tab, gf)
     return sc, log_p, log_c
+
+
+@njit(parallel=True, cache=True)
+def deal_batch(start, count, nplayers, deal_size, hand_size, do_refill, team, tab, gf, tw, tl, seed):
+    """deal() for hands start..start+count-1 (seed + index, as survey() uses).
+    Returns hands (count, nplayers), trump, and the team dealt the lowest trump."""
+    hands = np.zeros((count, nplayers), np.int64)
+    trumps = np.zeros(count, np.int64)
+    lo_team = np.zeros(count, np.int64)
+    for k in prange(count):
+        h, t = deal(seed + start + k, nplayers, deal_size, hand_size, do_refill, 0, tab, gf, tw, tl)
+        hands[k] = h
+        trumps[k] = t
+        lo_p = 1 << 30
+        for q in range(nplayers):
+            x = h[q] & tab[t, F_ESM, t]
+            while x:
+                c = lowest(x)
+                x &= x - 1
+                if tab[t, F_POWER, c] < lo_p:
+                    lo_p, lo_team[k] = tab[t, F_POWER, c], team[q]
+    return hands, trumps, lo_team
