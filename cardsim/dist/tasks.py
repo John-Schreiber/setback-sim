@@ -68,7 +68,7 @@ def run(kind, params, start, end, device):
             rows = gpu.survey(count, g, search, seed=seed, start=start)
         else:
             rows = fast.survey(count, g.nplayers, r.deal_size, r.hand_size, r.refill, g.team, g.nteams, True,
-                               g.rules_bt, search, g.tab, g.gf, g.tw, g.tl, g.tx, seed + start)
+                               g.rules_bt, search, g.tab, g.gf, g.tw, g.tl, g.tx, seed, start)
         return {"rows": rows}
     if kind == "allhands":
         from cardsim.hands import hand_classes

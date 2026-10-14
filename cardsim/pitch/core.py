@@ -592,3 +592,94 @@ def rollout(hands, tp, tc, tlen, leader, gone, won, voids, t, team, n, track, ru
         tp[tlen] = p
         tc[tlen] = c
         tlen += 1
+
+
+# ---------------------------------------------------------------- search sampling (CPU and GPU)
+#
+# Search draws its random numbers from a small xoroshiro128+ generator with one stream per
+# (game, sample slot), seeded by a hash of (study seed, global game index * slots + slot),
+# and deals the hidden cards with the same integer-only Fisher-Yates shuffle on CPU and
+# GPU. So search plays identically on either, and a study can mix CPU and GPU workers.
+# states: uint64 array (streams, 2).
+
+@kernel_fn
+def splitmix64(z):
+    z = z + np.uint64(0x9E3779B97F4A7C15)
+    z = (z ^ (z >> np.uint64(30))) * np.uint64(0xBF58476D1CE4E5B9)
+    z = (z ^ (z >> np.uint64(27))) * np.uint64(0x94D049BB133111EB)
+    return z ^ (z >> np.uint64(31))
+
+
+@kernel_fn
+def rng_seed(states, i, seed, index):
+    """Seed stream i from (seed, index)."""
+    z = splitmix64(np.uint64(seed) * np.uint64(0x9E3779B97F4A7C15) + np.uint64(index))
+    s0 = splitmix64(z)
+    s1 = splitmix64(s0)
+    states[i, 0] = s0
+    states[i, 1] = s1 if (s0 | s1) != np.uint64(0) else np.uint64(1)
+
+
+@kernel_fn
+def rng_next(states, i):
+    """xoroshiro128+ step on stream i."""
+    s0 = states[i, 0]
+    s1 = states[i, 1]
+    result = s0 + s1
+    s1 = s1 ^ s0
+    states[i, 0] = ((s0 << np.uint64(24)) | (s0 >> np.uint64(40))) ^ s1 ^ (s1 << np.uint64(16))
+    states[i, 1] = (s1 << np.uint64(37)) | (s1 >> np.uint64(27))
+    return result
+
+
+@kernel_fn
+def rng_below(states, i, m):
+    """Integer in [0, m) from stream i (integer math only, so CPU and GPU agree)."""
+    return np.int64((rng_next(states, i) >> np.uint64(11)) % np.uint64(m))
+
+
+@kernel_fn
+def sample_world(me, hands, unseen, nun, voids, n, t, tab, out, perm, used, order, states, si):
+    """Guess where the cards player `me` can't see are: deal `unseen` to the other players
+    (honoring known effective-suit voids) into `out`, using random stream si. Leftover
+    unseen cards are the undealt stock. perm/used (len >= nun) and order (len >= n) are
+    scratch space."""
+    out[me] = hands[me]
+    k = 0
+    for nv in range(4, -1, -1):  # most constrained first
+        for q in range(n):
+            if q != me and popcount(voids[q]) == nv:
+                order[k] = q
+                k += 1
+    for attempt in range(31):
+        for i in range(nun):
+            perm[i] = i
+            used[i] = 0
+        for i in range(nun - 1, 0, -1):  # Fisher-Yates
+            j = rng_below(states, si, i + 1)
+            tmp = perm[i]
+            perm[i] = perm[j]
+            perm[j] = tmp
+        ok = True
+        for jj in range(n - 1):
+            q = order[jj]
+            need = popcount(hands[q])
+            got = 0
+            m = np.int64(0)
+            for i in range(nun):
+                if got == need:
+                    break
+                if used[perm[i]]:
+                    continue
+                d = unseen[perm[i]]
+                if attempt < 30 and ((voids[q] >> tab[t, F_ESUIT, d]) & 1):
+                    continue  # last attempt ignores voids (shouldn't be needed)
+                m |= bit(d)
+                used[perm[i]] = 1
+                got += 1
+            out[q] = m
+            if got < need:
+                ok = False
+                break
+        if ok:
+            return

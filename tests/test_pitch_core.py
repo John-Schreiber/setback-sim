@@ -1,6 +1,8 @@
 """The generalized Pitch engine (cardsim.pitch) must reproduce the original engine
 (setback_fast.py) exactly under the setback4 preset: same deals, same trump, same
-cards captured, same points, for rule-based and search players.
+cards captured, same points, for rule-based players. Search draws its samples from a
+different generator than the original engine (so CPU and GPU can match each other
+exactly), so search is compared statistically on the same deals.
 
     .venv/Scripts/python tests/test_pitch_core.py
 """
@@ -48,15 +50,19 @@ def check_rules(nplayers, preset, deals=3000):
     print(f"  {nplayers}-handed {preset}: {deals * len(RULE_VARIANTS)} deals identical (rule-based)")
 
 
-def check_search(nplayers, deals=300, samples=8):
+def check_search(nplayers, deals=6000, samples=8):
     g = new.Game(PitchRules.preset("setback4"), nplayers)
     rules = g.rules_bt[g.team[0]]
     s = np.full(g.nteams, samples, np.int64)
     a = old.survey(deals, nplayers, g.team, g.nteams, True, True, rules, s, 4242)
     b = new.survey(deals, nplayers, 6, 6, False, g.team, g.nteams, True, g.rules_bt, s, g.tab, g.gf,
                    g.tw, g.tl, g.tx, 4242)
-    assert np.array_equal(a[:, old.F_OWN], b[:, 2]) and np.array_equal(a[:, old.F_OPP], b[:, 3])
-    print(f"  {nplayers}-handed setback4: {deals} deals identical (search, {samples} samples)")
+    d = b[:, 2] - a[:, old.F_OWN]
+    se = d.std() / np.sqrt(deals)
+    assert abs(d.mean()) < 4 * se, (d.mean(), se)
+    print(f"  {nplayers}-handed setback4: search on the same {deals} deals, bidder points "
+          f"{a[:, old.F_OWN].mean():.3f} (original) vs {b[:, 2].mean():.3f} (new): diff {d.mean():+.4f} "
+          f"+/- {se:.4f}")
 
 
 if __name__ == "__main__":

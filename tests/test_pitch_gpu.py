@@ -1,8 +1,7 @@
 """The generalized GPU engine against the generalized CPU engine, for every preset.
 
-Rule-based games must match exactly (same deals, same points); search uses
-different random numbers, so on the same deals the per-deal differences must
-average out to zero.
+Both rule-based and search games must match exactly: same deals, same points. Search
+draws from the same seeded streams with the same shuffle on both (core.sample_world).
 
     .venv/Scripts/python tests/test_pitch_gpu.py
 """
@@ -40,7 +39,7 @@ def check_rules_exact(preset, n, deals=50_000):
     print(f"  {preset:20} {n}-handed: {deals} rule-based games identical")
 
 
-def check_search_stats(preset, n, deals=20_000, samples=16):
+def check_search_exact(preset, n, deals=1500, samples=8):
     g = game_for(preset, n)
     if g is None:
         return
@@ -48,14 +47,13 @@ def check_search_stats(preset, n, deals=20_000, samples=16):
     s = np.full(g.nteams, samples, np.int64)
     t0 = time.time()
     cpu = fast.survey(deals, n, r.deal_size, r.hand_size, r.refill, g.team, g.nteams, True, g.rules_bt, s,
-                      g.tab, g.gf, g.tw, g.tl, g.tx, 999)
+                      g.tab, g.gf, g.tw, g.tl, g.tx, 999, 5000)
     tc = time.time() - t0
     t0 = time.time()
-    gp = gpu.survey(deals, g, s, seed=999)
+    gp = gpu.survey(deals, g, s, seed=999, start=5000, batch=600)
     tg = time.time() - t0
-    d = gp[:, 2] - cpu[:, 2]
-    print(f"  {preset:20} {n}-handed search: bidder avg cpu {cpu[:, 2].mean():.3f} gpu {gp[:, 2].mean():.3f}, "
-          f"paired diff {d.mean():+.4f} +/- {d.std() / np.sqrt(deals):.4f}  (cpu {tc:.0f}s, gpu {tg:.0f}s)")
+    assert np.array_equal(cpu, gp), (preset, n, np.argwhere((cpu != gp).any(axis=1))[:5])
+    print(f"  {preset:20} {n}-handed: {deals} search games identical (cpu {tc:.0f}s, gpu {tg:.0f}s)")
 
 
 if __name__ == "__main__":
@@ -63,6 +61,7 @@ if __name__ == "__main__":
     for preset in PRESETS:
         for n in (4, 6):
             check_rules_exact(preset, n)
-    print("search players, statistically on the same deals:")
-    for preset in ("setback4", "ten_point", "nine_five"):
-        check_search_stats(preset, 4)
+    print("search players, GPU vs CPU, exact:")
+    for preset in PRESETS:
+        for n in (4, 6):
+            check_search_exact(preset, n)

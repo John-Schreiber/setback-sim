@@ -90,6 +90,29 @@ def main():
     # a slice the rogue held was re-run by a real worker
     print("  rogue's slice", rogue["start"], "-", rogue["end"], "completed after its lease expired")
 
+    # a search study shared by a CPU-only worker and a GPU worker equals a single run
+    try:
+        from numba import cuda
+        has_gpu = cuda.is_available()
+    except ImportError:
+        has_gpu = False
+    if has_gpu:
+        mixed = tasks.study_params("survey", "ten_point", 4, 4, 77, hands=3000)
+        s3 = c.post("/studies", {"kind": "survey", "params": mixed, "engine": "any", "calib": 300})["id"]
+        ws = [threading.Thread(target=work, kwargs=dict(url=url, token="secret", device=d, target_minutes=0.01,
+                                                        exit_when_idle=True, name=f"mixed-{d}", idle_sleep=1.0,
+                                                        heartbeat_every=0.5, log=quiet.append))
+              for d in ("cpu", "auto")]
+        for t in ws:
+            t.start()
+        for t in ws:
+            t.join()
+        devs = {sl["device"] for sl in c.get(f"/studies/{s3}/slices")}
+        merged = dict(np.load(io.BytesIO(c.get(f"/studies/{s3}/result"))))
+        whole = tasks.run("survey", mixed, 0, 3000, "cpu")
+        assert np.array_equal(merged["rows"], whole["rows"])
+        print(f"  search study split across {sorted(devs)} workers: identical to one CPU run")
+
     try:
         from numba import cuda
         if cuda.is_available():

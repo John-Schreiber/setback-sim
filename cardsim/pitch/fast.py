@@ -7,8 +7,8 @@ import numpy as np
 from numba import njit, prange
 
 from cardsim.pitch import core
-from cardsim.pitch.core import (bit, heur_pick, lowest, note_void, options, popcount, rollout,
-                                score_into, search_value, trick_winner)
+from cardsim.pitch.core import (bit, heur_pick, lowest, note_void, options, popcount, rng_seed,
+                                rollout, sample_world, score_into, search_value, trick_winner)
 from cardsim.pitch.tables import (F_ESM, F_ESUIT, F_NRANK, F_POWER, F_PTS, G_DECK, build_flags,
                                   build_tables)
 
@@ -167,10 +167,23 @@ def deal(seed, nplayers, deal_size, hand_size, do_refill, bidder, tab, gf, tw, t
 # ---------------------------------------------------------------- whole games
 
 @njit(cache=True)
-def play_game_won(hands0, bidder, t, team, nteams, track, rules, search, tab, gf):
+def search_states(search, seed, game_index):
+    """Random streams for one game's search: stream s is seeded by (seed, game_index *
+    slots + s), exactly as the GPU engine seeds them, so search plays identically."""
+    nsamp = max(1, search.max())
+    states = np.zeros((nsamp, 2), np.uint64)
+    for s in range(nsamp):
+        rng_seed(states, s, seed, game_index * nsamp + s)
+    return states
+
+
+@njit(cache=True)
+def play_game_won(hands0, bidder, t, team, nteams, track, rules, search, tab, gf, seed=0, game_index=0):
     """Play one hand. Returns (points per team, cards each team captured, team that
-    took the last trick). search: sampled deals per decision, per team (0 = rules)."""
+    took the last trick). search: sampled deals per decision, per team (0 = rules);
+    its random numbers come from (seed, game_index), as on the GPU."""
     n = hands0.shape[0]
+    states = search_states(search, seed, game_index)
     lo_c, lo_p, lo_team = -1, 1 << 30, 0
     for q in range(n):
         x = hands0[q] & tab[t, F_ESM, t]
@@ -202,7 +215,7 @@ def play_game_won(hands0, bidder, t, team, nteams, track, rules, search, tab, gf
         p = (leader + tlen) % n
         if search[team[p]] > 0:
             c = search_pick(p, hands, tp, tc, tlen, gone, won, voids, t, team, n, track, rules,
-                            search[team[p]], tab, gf)
+                            search[team[p]], tab, gf, states)
         else:
             c = heur_pick(p, hands, tp, tc, tlen, gone, voids, t, team, n, rules, tab, gf)
         hands[p] &= ~bit(c)
@@ -217,56 +230,17 @@ def play_game_won(hands0, bidder, t, team, nteams, track, rules, search, tab, gf
 
 
 @njit(cache=True)
-def play_game(hands0, bidder, t, team, nteams, track, rules, search, tab, gf):
-    return play_game_won(hands0, bidder, t, team, nteams, track, rules, search, tab, gf)[0]
+def play_game(hands0, bidder, t, team, nteams, track, rules, search, tab, gf, seed=0, game_index=0):
+    return play_game_won(hands0, bidder, t, team, nteams, track, rules, search, tab, gf, seed, game_index)[0]
 
 
 # ---------------------------------------------------------------- search player
 
 @njit(cache=True)
-def sample_world(me, hands, unseen, nun, voids, n, tab, t):
-    """Deal the unseen cards to the other players, honoring known (effective-suit)
-    voids. Leftover unseen cards are the undealt stock."""
-    out = np.zeros(n, np.int64)
-    out[me] = hands[me]
-    order = np.empty(n - 1, np.int64)
-    k = 0
-    for nv in range(4, -1, -1):  # most constrained first
-        for q in range(n):
-            if q != me and popcount(voids[q]) == nv:
-                order[k] = q
-                k += 1
-    for attempt in range(31):
-        perm = np.random.permutation(nun)
-        used = np.zeros(nun, np.bool_)
-        ok = True
-        for j in range(n - 1):
-            q = order[j]
-            need = popcount(hands[q])
-            got = 0
-            out[q] = 0
-            for i in range(nun):
-                if got == need:
-                    break
-                d = unseen[perm[i]]
-                if used[perm[i]]:
-                    continue
-                if attempt < 30 and ((voids[q] >> tab[t, F_ESUIT, d]) & 1):
-                    continue  # last attempt ignores voids (shouldn't be needed)
-                out[q] |= bit(d)
-                used[perm[i]] = True
-                got += 1
-            if got < need:
-                ok = False
-                break
-        if ok:
-            return out
-    return out
-
-
-@njit(cache=True)
-def search_values(p, hands, tp, tc, tlen, gone, won, voids, t, team, n, track, rules, nsamp, tab, gf):
-    """Legal cards (mask) and each card's summed search value (indexed by card)."""
+def search_values(p, hands, tp, tc, tlen, gone, won, voids, t, team, n, track, rules, nsamp, tab, gf,
+                  states):
+    """Legal cards (mask) and each card's summed search value (indexed by card).
+    states: the game's random streams (search_states); sample s uses stream s."""
     hand = hands[p]
     opts = options(hand, gone, tc, tlen, t, tab, gf)
     totals = np.zeros(54, np.float64)
@@ -284,8 +258,12 @@ def search_values(p, hands, tp, tc, tlen, gone, won, voids, t, team, n, track, r
         unseen[nun] = c
         nun += 1
     lead_p = tp[0] if tlen else p
-    for _ in range(nsamp):
-        world = sample_world(p, hands, unseen, nun, voids, n, tab, t)
+    world = np.zeros(n, np.int64)
+    perm = np.empty(54, np.int64)
+    used = np.zeros(54, np.int8)
+    order = np.empty(n, np.int64)
+    for s in range(nsamp):
+        sample_world(p, hands, unseen, nun, voids, n, t, tab, world, perm, used, order, states, s)
         x = opts
         while x:
             c = lowest(x)
@@ -306,9 +284,10 @@ def search_values(p, hands, tp, tc, tlen, gone, won, voids, t, team, n, track, r
 
 
 @njit(cache=True)
-def search_pick(p, hands, tp, tc, tlen, gone, won, voids, t, team, n, track, rules, nsamp, tab, gf):
+def search_pick(p, hands, tp, tc, tlen, gone, won, voids, t, team, n, track, rules, nsamp, tab, gf,
+                states):
     opts, totals = search_values(p, hands, tp, tc, tlen, gone, won, voids, t, team, n, track, rules,
-                                 nsamp, tab, gf)
+                                 nsamp, tab, gf, states)
     if popcount(opts) == 1:
         return lowest(opts)
     best, bt, bp = -1, -1e300, 1 << 30
@@ -328,15 +307,18 @@ S_TRUMP, S_HAND, S_OWN, S_OPP, S_DEALT, S_SWEEP = range(6)  # survey() columns
 
 @njit(parallel=True, cache=True)
 def survey(nhands, nplayers, deal_size, hand_size, do_refill, team, nteams, track, rules_bt,
-           search, tab, gf, tw, tl, tx, seed):
+           search, tab, gf, tw, tl, tx, seed, start=0):
     """Random deals; seat 0 bids, names trump and pitches. One row per hand (S_* columns):
     trump, the bidder's hand in play, bidder-team points, everyone else's points, the
     bidder's dealt cards (before any discard), and whether the bidder's team took every
-    trick."""
+    trick. start: global index of the first deal (deal i uses seed + start + i), so pieces
+    of a study reproduce the whole, on CPU or GPU."""
     out = np.zeros((nhands, 6), np.int64)
     for i in prange(nhands):
-        hands, t, dealt = deal(seed + i, nplayers, deal_size, hand_size, do_refill, 0, tab, gf, tw, tl, tx)
-        sc, won, _ = play_game_won(hands, 0, t, team, nteams, True, rules_bt[team[0]], search, tab, gf)
+        hands, t, dealt = deal(seed + start + i, nplayers, deal_size, hand_size, do_refill, 0, tab, gf, tw,
+                               tl, tx)
+        sc, won, _ = play_game_won(hands, 0, t, team, nteams, True, rules_bt[team[0]], search, tab, gf,
+                                   seed, start + i)
         out[i, S_TRUMP] = t
         out[i, S_HAND] = hands[0]
         out[i, S_OWN] = sc[team[0]]
@@ -351,9 +333,10 @@ def survey(nhands, nplayers, deal_size, hand_size, do_refill, team, nteams, trac
 
 
 @njit(cache=True)
-def play_game_log(hands0, bidder, t, team, nteams, track, rules, search, tab, gf):
+def play_game_log(hands0, bidder, t, team, nteams, track, rules, search, tab, gf, seed=0, game_index=0):
     """play_game_won, also returning every card played in order (players, cards)."""
     n = hands0.shape[0]
+    states = search_states(search, seed, game_index)
     total = 0
     for q in range(n):
         total += popcount(hands0[q])
@@ -388,7 +371,7 @@ def play_game_log(hands0, bidder, t, team, nteams, track, rules, search, tab, gf
         p = (leader + tlen) % n
         if search[team[p]] > 0:
             c = search_pick(p, hands, tp, tc, tlen, gone, won, voids, t, team, n, track, rules,
-                            search[team[p]], tab, gf)
+                            search[team[p]], tab, gf, states)
         else:
             c = heur_pick(p, hands, tp, tc, tlen, gone, voids, t, team, n, rules, tab, gf)
         hands[p] &= ~bit(c)
@@ -486,10 +469,9 @@ def deal_with_hand_batch(hands_in, trumps, ids, deals, nplayers, deal_size, hand
 
 @njit(parallel=True, cache=True)
 def play_many(hands, trumps, team, nteams, rules, search, tab, gf, seed, offset):
-    """Play every dealt game (CPU). Game i is seeded with seed + offset + i, so a study
-    split into pieces reproduces the whole. Returns points per team."""
+    """Play every dealt game (CPU). Game i's search draws from (seed, offset + i), as
+    gpu.play_batch(seed=seed, game_offset=offset) does. Returns points per team."""
     out = np.zeros((hands.shape[0], nteams), np.int64)
     for i in prange(hands.shape[0]):
-        np.random.seed(seed + offset + i)
-        out[i] = play_game(hands[i], 0, trumps[i], team, nteams, True, rules, search, tab, gf)
+        out[i] = play_game(hands[i], 0, trumps[i], team, nteams, True, rules, search, tab, gf, seed, offset + i)
     return out

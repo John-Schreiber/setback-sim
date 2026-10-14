@@ -17,7 +17,6 @@ import os
 
 import numpy as np
 from numba import cuda
-from numba.cuda.random import xoroshiro128p_dtype, xoroshiro128p_uniform_float64
 
 from cardsim.pitch.tables import F_ESUIT, F_POWER, G_DECK
 
@@ -31,6 +30,7 @@ bit, lowest, popcount = core.bit, core.lowest, core.popcount
 options, trick_winner, note_void = core.options, core.trick_winner, core.note_void
 heur_pick, rollout = core.heur_pick, core.rollout
 search_value, score_into = core.search_value, core.score_into
+sample_world, rng_seed = core.sample_world, core.rng_seed
 
 MAXP, MAXT, MAXOPT, TPB = 6, 3, 9, 128  # players, teams, legal cards per decision, threads/block
 
@@ -46,6 +46,7 @@ def kth_card(m, k):
 @cuda.jit
 def k_sample(hands, gone, voids, tp, tc, tlen, leader, trumps, team, n, search, nsamp, worlds, rng,
              tab, gf):
+    """One thread per (game, sample): the shared core.sample_world on stream g*nsamp + s."""
     idx = cuda.grid(1)
     g = idx // nsamp
     s = idx % nsamp
@@ -69,48 +70,10 @@ def k_sample(hands, gone, voids, tp, tc, tlen, leader, trumps, team, n, search, 
         rest &= rest - 1
         unseen[nun] = c
         nun += 1
-    order = cuda.local.array(MAXP, np.int64)
-    k = 0
-    for nv in range(4, -1, -1):  # most constrained first
-        for q in range(n):
-            if q != p and popcount(voids[g, q]) == nv:
-                order[k] = q
-                k += 1
     perm = cuda.local.array(54, np.int64)
     used = cuda.local.array(54, np.int8)
-    worlds[g, s, p] = hand
-    for attempt in range(31):
-        for i in range(nun):  # Fisher-Yates shuffle
-            perm[i] = i
-            used[i] = 0
-        for i in range(nun - 1, 0, -1):
-            j = int(xoroshiro128p_uniform_float64(rng, idx) * (i + 1))
-            if j > i:
-                j = i
-            perm[i], perm[j] = perm[j], perm[i]
-        ok = True
-        for jj in range(n - 1):
-            q = order[jj]
-            need = popcount(hands[g, q])
-            got = 0
-            m = np.int64(0)
-            for i in range(nun):
-                if got == need:
-                    break
-                if used[perm[i]]:
-                    continue
-                d = unseen[perm[i]]
-                if attempt < 30 and ((voids[g, q] >> tab[t, F_ESUIT, d]) & 1):
-                    continue
-                m |= bit(d)
-                used[perm[i]] = 1
-                got += 1
-            worlds[g, s, q] = m
-            if got < need:
-                ok = False
-                break
-        if ok:
-            return
+    order = cuda.local.array(MAXP, np.int64)
+    sample_world(p, hands[g], unseen, nun, voids[g], n, t, tab, worlds[g, s], perm, used, order, rng, idx)
 
 
 @cuda.jit
@@ -203,25 +166,13 @@ def k_score(won, trumps, lo_team, last_team, out, tab, gf):
         score_into(won[g], trumps[g], lo_team[g], last_team[g], out[g], tab, gf)
 
 
-@cuda.jit(device=True)
-def splitmix64(z):
-    z = z + np.uint64(0x9E3779B97F4A7C15)
-    z = (z ^ (z >> np.uint64(30))) * np.uint64(0xBF58476D1CE4E5B9)
-    z = (z ^ (z >> np.uint64(27))) * np.uint64(0x94D049BB133111EB)
-    return z ^ (z >> np.uint64(31))
-
-
 @cuda.jit
 def k_init_states(states, seed, base):
-    """Random state for search thread i = a hash of (seed, base + i), so each game's
-    random numbers depend only on its global index, never on how work was batched."""
+    """Stream i for search = core.rng_seed(seed, base + i): each game's random numbers
+    depend only on its global index, as on the CPU, never on how work was batched."""
     i = cuda.grid(1)
     if i < states.shape[0]:
-        z = splitmix64(np.uint64(seed) * np.uint64(0x9E3779B97F4A7C15) + np.uint64(base + i))
-        s0 = splitmix64(z)
-        s1 = splitmix64(s0)
-        states[i]["s0"] = s0
-        states[i]["s1"] = s1 if (s0 | s1) != 0 else np.uint64(1)
+        rng_seed(states, i, seed, base + i)
 
 
 def _blocks(nthreads):
@@ -262,7 +213,7 @@ def play_batch(hands0, trumps, lo_team, team, rules, search, tab, gf, track=True
         if search.max():
             d_worlds = cuda.device_array((G, nsamp, n), np.int64)
             d_vals = cuda.device_array((G, nsamp, MAXOPT), np.float64)
-            rng = cuda.device_array(G * nsamp, dtype=xoroshiro128p_dtype)
+            rng = cuda.device_array((G * nsamp, 2), dtype=np.uint64)
             k_init_states[_blocks(G * nsamp), TPB](rng, seed, (game_offset + a) * nsamp)
         else:
             d_vals = cuda.device_array((1, 1, MAXOPT), np.float64)
