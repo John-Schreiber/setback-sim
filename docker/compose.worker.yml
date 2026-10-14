@@ -1,9 +1,13 @@
 # GPU worker (run on each machine with an NVIDIA GPU and the NVIDIA Container Toolkit):
 #   COORDINATOR_URL=http://<coordinator-ip>:8700 docker compose -f docker/compose.worker.yml up -d --build
+# For older cards (GTX 10xx, driver < 580) also set GPU_EXTRA=gpu-cu12.
 services:
   worker:
-    build: {context: .., dockerfile: docker/Dockerfile}
-    image: setback-sim:latest
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+      args: {GPU_EXTRA: "${GPU_EXTRA:-gpu}"}
+    image: setback-sim:${GPU_EXTRA:-gpu}
     command: ["python", "-m", "cardsim.dist.worker"]
     environment:
       COORDINATOR_URL: ${COORDINATOR_URL:?set COORDINATOR_URL, e.g. http://192.168.1.10:8700}
