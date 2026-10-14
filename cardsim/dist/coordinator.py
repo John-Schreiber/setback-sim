@@ -7,9 +7,10 @@ works, and uploads the result. A slice whose worker goes quiet for `lease_timeou
 seconds goes back in the queue, so a restarted worker or coordinator loses at most the
 slices in flight.
 
-A study's `engine` is "gpu", "cpu" or "any": search results are only bit-for-bit
-reproducible on one engine type (rule-based play is identical on both), so a search
-study normally asks for "gpu".
+A study's `engine` is "gpu", "cpu" or "any". Rule-based play is identical on both. Search
+draws its samples differently on CPU and GPU, so a search study with engine "any" mixes
+two (equally valid) sample streams; every slice is still exactly reproducible on the
+device it ran on, which /studies/{id}/slices records.
 
     python -m cardsim.dist.coordinator --data ./dist-data --host 0.0.0.0 --port 8700
 Set COORDINATOR_TOKEN to require a matching X-Token header from workers and clients.
@@ -138,6 +139,11 @@ class Store:
             self.db.execute("update jobs set state='pending', worker=null, error=? where id=? and worker=?",
                             (error[:2000], jid, worker))
 
+    def slices(self, sid):
+        return [dict(r) for r in self.db.execute(
+            "select start, end, state, worker, device, seconds, attempts from jobs where study=? order by start",
+            (sid,)).fetchall()]
+
     def result(self, sid):
         s = self.db.execute("select * from studies where id=?", (sid,)).fetchone()
         if s is None:
@@ -202,6 +208,11 @@ def create_app(data, lease_timeout=120.0, token=None):
         check(x_token)
         store.fail(jid, worker, (await req.body()).decode("utf-8", "replace"))
         return {"ok": True}
+
+    @app.get("/studies/{sid}/slices")
+    def study_slices(sid: str, x_token: str = Header(None)):
+        check(x_token)
+        return store.slices(sid)
 
     @app.get("/studies/{sid}/result")
     def study_result(sid: str, x_token: str = Header(None)):

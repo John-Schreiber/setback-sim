@@ -59,6 +59,19 @@ $env:COORDINATOR_URL = "http://host.docker.internal:8700"
 docker compose -f docker/compose.worker.yml up -d --build
 ```
 
+### CPU workers
+
+Any machine can also lend its CPU. A CPU worker can share a machine with a GPU worker;
+cap its threads so the GPU worker keeps a couple of cores for dealing cards:
+
+```bash
+CPU_THREADS=10 docker compose -f docker/compose.cpu-worker.yml up -d --build
+```
+
+A CPU worker does about as much search work as a GTX 1060 (2,000-3,000 4-handed search
+deals per second on a 6-8 core Ryzen; an RTX 3070 does about 29,000). It takes studies
+submitted with `--engine cpu` or `--engine any`.
+
 ## 3. Submitting studies and getting results
 
 From any machine with the repo and `uv sync`:
@@ -76,9 +89,11 @@ uv run python -m cardsim.dist.client fetch STUDY_ID -o ten_point_4p.npz
 | `survey` | random deals | `rows`: trump, hand, bidding team's points, others' points, dealt hand, swept all tricks |
 | `allhands` | the 962,988 distinct 6-card hands (52-card, 6-card presets) | `own`: bidding team's points, per hand and deal |
 
-Search studies run on GPU workers only (`--engine gpu`, the default with `--search`),
-because the CPU and GPU draw their search samples differently. Rule-based studies run
-anywhere and give identical results.
+Search studies default to GPU workers only (`--engine gpu`), so the whole result can be
+reproduced bit for bit on one GPU. Submit with `--engine any` to let CPU workers share
+the work: the CPU and GPU draw search samples differently, but both are valid, and each
+slice is still exactly reproducible on the device it ran on (see
+`GET /studies/{id}/slices`). Rule-based studies run anywhere and give identical results.
 
 ## Updating the code
 

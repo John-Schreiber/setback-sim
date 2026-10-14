@@ -1,0 +1,18 @@
+# CPU worker (any machine, no GPU needed). Takes studies submitted with --engine cpu or any.
+#   COORDINATOR_URL=http://<coordinator-ip>:8700 docker compose -f docker/compose.cpu-worker.yml up -d --build
+# CPU_THREADS caps its threads; leave a couple free if a GPU worker shares the machine
+# (GPU workers deal the cards on the CPU).
+services:
+  cpu-worker:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+      args: {GPU_EXTRA: "${GPU_EXTRA:-gpu}"}
+    image: setback-sim:${GPU_EXTRA:-gpu}
+    command: ["python", "-m", "cardsim.dist.worker", "--device", "cpu"]
+    environment:
+      COORDINATOR_URL: ${COORDINATOR_URL:?set COORDINATOR_URL, e.g. http://192.168.1.10:8700}
+      COORDINATOR_TOKEN: ${COORDINATOR_TOKEN:-}
+      TARGET_MINUTES: ${TARGET_MINUTES:-7.5}
+      NUMBA_NUM_THREADS: ${CPU_THREADS:-}
+    restart: unless-stopped

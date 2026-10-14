@@ -23,7 +23,10 @@ def main():
     s.add_argument("--deals", type=int, default=224, help="allhands: deals per hand class")
     s.add_argument("--search", type=int, default=16)
     s.add_argument("--seed", type=int, default=1)
-    s.add_argument("--engine", default=None, help="gpu, cpu or any (default: gpu with search, any without)")
+    s.add_argument("--engine", default=None,
+                   help="gpu, cpu or any (default: gpu with search, any without). 'any' lets CPU "
+                        "workers share a search study too (CPU and GPU draw search samples differently; "
+                        "each slice stays reproducible on its recorded device)")
     s.add_argument("--name")
     sub.add_parser("status")
     f = sub.add_parser("fetch")
