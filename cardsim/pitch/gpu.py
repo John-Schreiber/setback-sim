@@ -5,7 +5,10 @@ device functions). The CPU deals (fast.deal_batch, same seeds as the CPU engine,
 including any discard and refill); then every game advances one card at a time:
 
   1. k_sample   one thread per (game, sample): a searching player guesses the hidden cards
-  2. k_rollout  one thread per (game, sample, legal card): finish the hand with the rules
+  2. k_rollout  one thread per (game, sample, legal card): finish the hand with the rules.
+                Only real work is launched: k_count counts each game's legal cards when its
+                player searches, and the threads run over that packed list, the samples
+                of one (game, card) side by side so neighbouring threads follow similar paths
   3. k_advance  one thread per game: pick the card (search total or the rules) and play it
 
 Rule-based games match the CPU engine exactly; search matches statistically
@@ -77,24 +80,35 @@ def k_sample(hands, gone, voids, tp, tc, tlen, leader, trumps, team, n, search, 
 
 
 @cuda.jit
-def k_rollout(hands, gone, won, voids, tp, tc, tlen, leader, trumps, team, n, nteams, search, nsamp,
-              rules, track, worlds, vals, tab, gf):
-    idx = cuda.grid(1)
-    g = idx // (nsamp * MAXOPT)
-    r = idx % (nsamp * MAXOPT)
-    s = r // MAXOPT
-    k = r % MAXOPT
+def k_count(hands, gone, tc, tlen, leader, trumps, team, n, search, counts, tab, gf):
+    """Legal cards to search for each game this step (0 for the rules or a forced play)."""
+    g = cuda.grid(1)
     if g >= hands.shape[0]:
         return
+    p = (leader[g] + tlen) % n
+    no = 0
+    if search[team[p]] > 0:
+        no = popcount(options(hands[g, p], gone[g], tc[g], tlen, trumps[g], tab, gf))
+    counts[g] = no if no > 1 else 0
+
+
+@cuda.jit
+def k_rollout(hands, gone, won, voids, tp, tc, tlen, leader, trumps, team, n, nteams, search, nsamp,
+              rules, track, worlds, vals, work_g, work_k, nwork, tab, gf):
+    """One thread per (work item, sample); work item = (game, k-th legal card)."""
+    idx = cuda.grid(1)
+    wi = idx // nsamp
+    s = idx % nsamp
+    if wi >= nwork:
+        return
+    g = work_g[wi]
+    k = work_k[wi]
     p = (leader[g] + tlen) % n
     if s >= search[team[p]]:
         return
     t = trumps[g]
     hand = hands[g, p]
-    opts = options(hand, gone[g], tc[g], tlen, t, tab, gf)
-    if popcount(opts) <= 1 or k >= popcount(opts):
-        return
-    c = kth_card(opts, k)
+    c = kth_card(options(hand, gone[g], tc[g], tlen, t, tab, gf), k)
     hs = cuda.local.array(MAXP, np.int64)
     vs = cuda.local.array(MAXP, np.int64)
     tp2 = cuda.local.array(MAXP, np.int64)
@@ -180,7 +194,7 @@ def _blocks(nthreads):
 
 
 def play_batch(hands0, trumps, lo_team, team, rules, search, tab, gf, track=True, bidder=0, seed=0,
-               max_rollout_threads=4_000_000, return_won=False, game_offset=0):
+               max_rollout_threads=8_000_000, return_won=False, game_offset=0):
     """Play every deal in hands0 (games x players masks). rules: the rules array of the
     bidding team; search: samples per team (0 = rule-based). game_offset: global index
     of hands0[0]; search's random numbers depend only on (seed, global index), so
@@ -194,6 +208,7 @@ def play_batch(hands0, trumps, lo_team, team, rules, search, tab, gf, track=True
     search = np.asarray(search, np.int64)
     nsamp = max(1, int(search.max()))
     chunk = max(1, min(B, max_rollout_threads // (nsamp * MAXOPT))) if search.max() else B
+    gidx = np.arange(chunk, dtype=np.int64)
     out = np.zeros((B, nteams), np.int64)
     won_all = np.zeros((B, nteams), np.int64)
     d_team, d_rules = cuda.to_device(team), cuda.to_device(np.ascontiguousarray(rules, np.int64))
@@ -213,6 +228,7 @@ def play_batch(hands0, trumps, lo_team, team, rules, search, tab, gf, track=True
         if search.max():
             d_worlds = cuda.device_array((G, nsamp, n), np.int64)
             d_vals = cuda.device_array((G, nsamp, MAXOPT), np.float64)
+            d_counts = cuda.device_array(G, np.int32)
             rng = cuda.device_array((G * nsamp, 2), dtype=np.uint64)
             k_init_states[_blocks(G * nsamp), TPB](rng, seed, (game_offset + a) * nsamp)
         else:
@@ -223,10 +239,18 @@ def play_batch(hands0, trumps, lo_team, team, rules, search, tab, gf, track=True
                 k_sample[_blocks(G * nsamp), TPB](d_hands, d_gone, d_voids, d_tp, d_tc, tlen, d_leader,
                                                   d_trumps, d_team, n, d_search, nsamp, d_worlds, rng,
                                                   d_tab, d_gf)
-                k_rollout[_blocks(G * nsamp * MAXOPT), TPB](d_hands, d_gone, d_won, d_voids, d_tp, d_tc,
-                                                            tlen, d_leader, d_trumps, d_team, n, nteams,
-                                                            d_search, nsamp, d_rules, track, d_worlds,
-                                                            d_vals, d_tab, d_gf)
+                k_count[_blocks(G), TPB](d_hands, d_gone, d_tc, tlen, d_leader, d_trumps, d_team, n,
+                                         d_search, d_counts, d_tab, d_gf)
+                counts = d_counts.copy_to_host()
+                nwork = int(counts.sum())
+                if nwork:
+                    work_g = np.repeat(gidx[:G], counts)
+                    work_k = np.arange(nwork, dtype=np.int64) - np.repeat(np.cumsum(counts) - counts, counts)
+                    k_rollout[_blocks(nwork * nsamp), TPB](d_hands, d_gone, d_won, d_voids, d_tp, d_tc,
+                                                           tlen, d_leader, d_trumps, d_team, n, nteams,
+                                                           d_search, nsamp, d_rules, track, d_worlds,
+                                                           d_vals, cuda.to_device(work_g),
+                                                           cuda.to_device(work_k), nwork, d_tab, d_gf)
             k_advance[_blocks(G), TPB](d_hands, d_gone, d_won, d_voids, d_tp, d_tc, tlen, d_leader, d_last,
                                        d_trumps, d_team, n, d_search, d_rules, track, d_vals, d_tab, d_gf)
         d_out = cuda.device_array((G, nteams), np.int64)
