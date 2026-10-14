@@ -20,3 +20,6 @@ old_trump_weights/
 survey_*.txt
 bidchart_*_t2*.csv
 bidchart_6p_t3.csv
+
+# local archive of dropped outputs (PDF / Excel generation)
+archive/

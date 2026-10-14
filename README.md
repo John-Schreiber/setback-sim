@@ -4,10 +4,9 @@ How high should you bid in **Setback** (also called **Pitch**)? This project ans
 playing out **every possible 6-card hand** with computer players that look ahead, on CPU or
 GPU, and turning the results into bidding charts.
 
-**Just want the charts?** See [`setback_bidding_charts.pdf`](setback_bidding_charts.pdf): a
-4-page guide with one chart for 4-handed and one for 6-handed play. For every exact trump
-holding, [`setback_ev_by_trumps_and_aces.xlsx`](setback_ev_by_trumps_and_aces.xlsx) has the
-expected points of each bid.
+**Just want the charts?** [`bidchart_condensed.md`](bidchart_condensed.md) has a compact
+bidding chart for 4-handed and 6-handed play: for each trump holding, how many small trumps you
+need to bid 2, 3 or 4.
 
 ## What it found (4-handed unless noted)
 
@@ -40,14 +39,13 @@ leads first and that card sets trump; you may always trump in. 4-handed is two t
   29,000 4-handed games per second.
 - **Every hand.** Up to suit relabeling, the 20,358,520 possible 6-card hands reduce to
   962,988. `allhands.py` plays each one as bidder against hundreds of random deals and saves
-  the per-hand results. `condense.py`, `make_pdf.py` and `make_excel.py` turn those into the
-  charts and the spreadsheet.
+  the per-hand results. `condense.py` turns those into the condensed charts.
 
 ## Running it
 
 ```
 uv venv -p 3.14 .venv
-uv pip install --python .venv -e ".[gpu,reports]"      # gpu needs an NVIDIA card
+uv pip install --python .venv -e ".[gpu]"      # gpu needs an NVIDIA card
 .venv/Scripts/python setback.py hand "AS JS 2S KH 9D 4C" -p 4 --search 16 --engine gpu
 .venv/Scripts/python setback.py lookup "AS JS 2S KH 9D 4C" -p 6     # needs the every-hand tables
 .venv/Scripts/python test_fast.py && .venv/Scripts/python test_gpu.py
@@ -61,7 +59,7 @@ On Linux or macOS, use `.venv/bin/python` instead.
 | `allhands.py` | the every-hand tables (hours with search players; minutes with rule-based ones) |
 | `auction.py` | whole games with an auction: bidding strategies, stealing, dealer's privilege, 11-bids |
 | `experiments.py`, `fit_trump.py`, `sweep.py` | targeted studies: weakest profitable bids, bare Ace vs two trumps, trump-choice weights, sweep chances |
-| `condense.py`, `make_pdf.py`, `make_excel.py` | charts, PDF and spreadsheet from the tables |
+| `condense.py` | condensed bid charts from the tables |
 
 The every-hand tables (about 15 MB each) are published as
 [release assets](../../releases) rather than kept in the repo.
