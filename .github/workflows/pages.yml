@@ -1,5 +1,6 @@
 # Stats site: build the Parquet data and page (site/build.py) and publish to GitHub Pages.
-# The every-hand tables come from the latest release's assets.
+# The every-hand table comes prebuilt from the latest release (allhands.parquet), so the
+# build only needs pandas and pyarrow and takes seconds.
 name: Stats site
 
 on:
@@ -25,12 +26,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
-      - name: Every-hand tables from the latest release
+      - name: Every-hand table from the latest release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release download --pattern 'allhands_*.csv.gz' --dir tables || echo "no release tables; building without them"
+        run: gh release download --pattern 'allhands.parquet' --dir tables || echo "no every-hand table; building without it"
       - name: Build
-        run: uv run --extra site python site/build.py --tables tables
+        run: uv run --no-project --python 3.14 --with pandas --with pyarrow python site/build.py --tables tables
       - uses: actions/upload-pages-artifact@v3
         with:
           path: site/_build

@@ -9,8 +9,10 @@ looked up without downloading them. Output goes to site/_build/ (index.html and 
                      points, highest bid with expected points >= 0 (charts/*.csv)
   chart_ev.parquet   the same groups, one row per bid: expected points of that bid
   condensed.parquet  4-point Setback, from the every-hand tables (condensed_*.csv)
-  allhands.parquet   every distinct 6-card hand, 4-point Setback, as bidder (the release
-                     tables allhands_*.csv.gz; skipped if they aren't present)
+  allhands.parquet   every distinct 6-card hand, 4-point Setback, as bidder. Built from the
+                     release tables allhands_*.csv.gz, or copied as is if DIR already has an
+                     allhands.parquet (the release carries one, so the site build skips the
+                     slow part); skipped if neither is present
 
     uv run --extra site python site/build.py [--tables DIR]
 """
@@ -125,9 +127,14 @@ def main():
              "charts": write(wide, "charts.parquet"),
              "chart_ev": write(long, "chart_ev.parquet"),
              "condensed": write(condensed(), "condensed.parquet")}
-    ah = allhands(a.tables)
-    if ah is not None:
-        sizes["allhands"] = write(ah, "allhands.parquet", row_group_size=16_384)
+    pre = os.path.join(a.tables, "allhands.parquet")
+    if os.path.exists(pre):
+        shutil.copy(pre, os.path.join(OUT, "data", "allhands.parquet"))
+        sizes["allhands"] = pq.ParquetFile(pre).metadata.num_rows
+    else:
+        ah = allhands(a.tables)
+        if ah is not None:
+            sizes["allhands"] = write(ah, "allhands.parquet", row_group_size=16_384)
     with open(os.path.join(OUT, "data", "tables.json"), "w") as f:
         json.dump(sizes, f)
     for name, rows in sizes.items():
