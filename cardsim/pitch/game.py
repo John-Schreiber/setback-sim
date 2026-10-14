@@ -6,6 +6,7 @@ moon bid is worth it). Strategies, per team (as in auction.py):
   table   bid your highest profitable bid if it beats the high bid
   cheap   bid just enough to beat the high bid, if that bid is profitable
   add "-ns" to never overcall your partner.
+--pairs A:B plays team A's strategy against B on every other team (6-handed: two teams).
 Rules handled: bid range, moon bid (value or game win), stuck dealer or redeal,
 dealer's privilege at listed levels, discard and refill, target, win by, bidder goes
 out first, no junk points, exact-bid bonus, backdoor loss.
@@ -27,8 +28,11 @@ from cardsim.pitch.tables import F_ESM, F_POWER, G_DECK
 
 STRATS = {"table": 1, "cheap": 2}
 MAX_SMALL = 10
-(C_WIN, C_HANDS, C_S0, C_S1, C_AUC0, C_AUC1, C_SET0, C_SET1, C_MOON0, C_MOON1, C_MOONMADE0,
- C_MOONMADE1, C_REDEALS) = range(13)
+# out columns: winner, hands, redeals, then one block of MAXT columns per counter (team k at +k)
+MAXT = 3
+C_WIN, C_HANDS, C_REDEALS = range(3)
+C_S0, C_AUC0, C_SET0, C_MOON0, C_MOONMADE0 = (3 + MAXT * i for i in range(5))
+N_COLS = 3 + 5 * MAXT
 
 
 class Brain:
@@ -86,7 +90,7 @@ def play_games(ngames, nplayers, team, strat, nosteal, rp, take, maxbid, moon, h
     win_by, bidder_out, no_junk, exact_bonus, backdoor, ptotal = rp[10], rp[11], rp[12], rp[13], rp[14], rp[15]
     nteams = team.max() + 1
     zero = np.zeros(nteams, np.int64)
-    out = np.zeros((ngames, 13), np.int64)
+    out = np.zeros((ngames, N_COLS), np.int64)
     for gi in prange(ngames):
         np.random.seed(seed + gi)
         score = np.zeros(nteams, np.int64)
@@ -193,8 +197,8 @@ def play_games(ngames, nplayers, team, strat, nosteal, rp, take, maxbid, moon, h
                         winner = top
         out[gi, C_WIN] = winner
         out[gi, C_HANDS] = nh
-        out[gi, C_S0] = score[0]
-        out[gi, C_S1] = score[1]
+        for k2 in range(nteams):
+            out[gi, C_S0 + k2] = score[k2]
     return out
 
 
@@ -225,8 +229,9 @@ def main():
     print(f"{'team A':>10} vs {'team B':<10} A wins          hands/game  A sets  B sets  moon bids A/B per 1000 (made)")
     for pair in a.pairs.split(","):
         sa, sb = pair.split(":")
-        strat = np.array([STRATS[x.replace("-ns", "")] for x in (sa, sb)], np.int64)
-        ns = np.array([int(x.endswith("-ns")) for x in (sa, sb)], np.int64)
+        sides = (sa,) + (sb,) * (g.nteams - 1)  # team A against B on every other team
+        strat = np.array([STRATS[x.replace("-ns", "")] for x in sides], np.int64)
+        ns = np.array([int(x.endswith("-ns")) for x in sides], np.int64)
         o = play_games(a.games, a.players, g.team, strat, ns, rp, take, brain.maxbid, brain.moon,
                        brain.honor_cards, g.rules_bt, g.tab, g.gf, g.tw, g.tl, g.tx, a.seed)
         tot = o.sum(axis=0)
@@ -235,8 +240,8 @@ def main():
         hands = tot[C_HANDS]
         mm = lambda k: tot[C_MOONMADE0 + k] / max(1, tot[C_MOON0 + k])
         print(f"{sa:>10} vs {sb:<10} {win:6.1%} +/-{se:.1%}   {o[:, C_HANDS].mean():6.1f}     "
-              f"{tot[C_SET0] / max(1, tot[C_AUC0]):5.1%}  {tot[C_SET1] / max(1, tot[C_AUC1]):5.1%}   "
-              f"{1000 * tot[C_MOON0] / hands:.2f} ({mm(0):.0%}) / {1000 * tot[C_MOON1] / hands:.2f} ({mm(1):.0%})")
+              f"{tot[C_SET0] / max(1, tot[C_AUC0]):5.1%}  {tot[C_SET0 + 1] / max(1, tot[C_AUC0 + 1]):5.1%}   "
+              f"{1000 * tot[C_MOON0] / hands:.2f} ({mm(0):.0%}) / {1000 * tot[C_MOON0 + 1] / hands:.2f} ({mm(1):.0%})")
 
 
 if __name__ == "__main__":
