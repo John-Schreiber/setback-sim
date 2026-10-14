@@ -15,7 +15,15 @@ from ..cards import BIG_JOKER, COLOR_MATE, LITTLE_JOKER, N_CARDS, card, deck_mas
 
 # TAB fields (third index is the card, except ESM: third index is the suit 0..3)
 F_ESUIT, F_POWER, F_ABOVE, F_PTS, F_GV, F_NRANK, F_ESM = range(7)
-N_FIELDS = 7
+# precomputed per-trump sort keys of the rule-based player (one lookup instead of
+# recomputing through several reads and branches each time a card is compared)
+F_DANGER, F_SHED, F_CHEAP, F_SMEAR, F_CASH, F_SAFE = range(7, 13)
+# F_MASKS: per-trump masks and card ids (third index one of the M_* slots below) that turn
+# card-by-card scans into a bit operation or two
+F_MASKS = 13
+N_FIELDS = 14
+(M_TR_LOW, M_TR_HIGH, M_LJ, M_BJ, M_OFFJ, M_SAFE_TR, M_POINTS, M_ACES, M_TENS, M_KINGS, M_QUEENS,
+ M_JACKS, M_MID, M_MID2) = range(14)
 
 # GF flags
 (G_DECK, G_MAY_TRUMP, G_FIRST_LEAD, G_TRUMP_BROKEN, G_LOWCAP, G_HIGH, G_LOW, G_GAME, G_LAST,
@@ -74,6 +82,53 @@ def build_tables(rules):
                 if tab[t, F_ESUIT, d] == es and tab[t, F_POWER, d] > tab[t, F_POWER, c]:
                     above |= 1 << d
             tab[t, F_ABOVE, c] = above
+    return add_keys(tab, rules)
+
+
+def add_keys(tab, rules):
+    """Fill the precomputed sort keys (danger and the orderings built from it)."""
+    for t in range(4):
+        for c in range(N_CARDS):
+            es = tab[t, F_ESUIT, c]
+            if es < 0:
+                continue
+            power, trump = tab[t, F_POWER, c], int(es == t)
+            d = tab[t, F_GV, c] + 15 * tab[t, F_PTS, c]
+            if rules.low_to_captor and c < 52 and c // 13 == t and tab[t, F_NRANK, c] <= 3:
+                d += 8
+            tab[t, F_DANGER, c] = d
+            tab[t, F_SHED, c] = d * 10000 + trump * 1000 + power
+            tab[t, F_CHEAP, c] = trump * 100000000 + d * 1000 + power
+            tab[t, F_SMEAR, c] = d * 1000 - power
+            tab[t, F_CASH, c] = tab[t, F_GV, c] * 1000 + power
+            tab[t, F_SAFE, c] = power * 4 + es
+    deck = deck_mask(rules.jokers)
+
+    def ranks(*rs):
+        return sum(1 << c for c in range(52) if (deck >> c) & 1 and rank_of(c) in rs)
+
+    for t in range(4):
+        M = tab[t, F_MASKS]
+        # trump power order: natural 2..10 < little joker < big joker < off-jack < natural J..A
+        M[M_TR_LOW] = 0x1FF << (13 * t)
+        M[M_TR_HIGH] = 0xF << (13 * t + 9)
+        M[M_LJ] = LITTLE_JOKER if tab[t, F_ESUIT, LITTLE_JOKER] == t else -1
+        M[M_BJ] = BIG_JOKER if tab[t, F_ESUIT, BIG_JOKER] == t else -1
+        oj = card(11, COLOR_MATE[t])
+        M[M_OFFJ] = oj if tab[t, F_ESUIT, oj] == t else -1
+        for c in range(N_CARDS):
+            if tab[t, F_ESUIT, c] == t and tab[t, F_DANGER, c] == 0:
+                M[M_SAFE_TR] |= 1 << c
+            if tab[t, F_ESUIT, c] >= 0 and tab[t, F_PTS, c] != 0:
+                M[M_POINTS] |= 1 << c
+        M[M_ACES], M[M_TENS], M[M_KINGS], M[M_QUEENS], M[M_JACKS] = (ranks(14), ranks(10), ranks(13),
+                                                                    ranks(12), ranks(11))
+        M[M_MID] = ranks(4, 5, 6, 7, 8, 9)
+        M[M_MID2] = ranks(4, 5, 6, 7, 8, 9, 12, 13)
+        assert GAME_COUNT == {10: 10, 14: 4, 13: 3, 12: 2, 11: 1}  # game_points relies on it
+        for c in range(N_CARDS):  # the order top_trump / low_trump rely on
+            if tab[t, F_ESUIT, c] == t and c < 52 and c // 13 == t:
+                assert (tab[t, F_POWER, c] < POWER_LITTLE_JOKER) == (rank_of(c) <= 10)
     return tab
 
 

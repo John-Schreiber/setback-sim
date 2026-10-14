@@ -11,7 +11,10 @@ compiles for the CPU; the GPU engine loads this file again with TARGET = "cuda".
 """
 import numpy as np
 
-from cardsim.pitch.tables import (F_ABOVE, F_ESM, F_ESUIT, F_GV, F_NRANK, F_POWER, F_PTS,
+from cardsim.pitch.tables import (F_ABOVE, F_CASH, F_CHEAP, F_DANGER, F_ESM, F_ESUIT, F_GV, F_MASKS,
+                                  F_NRANK, F_POWER, F_PTS, F_SAFE, F_SHED, F_SMEAR, M_ACES, M_BJ,
+                                  M_JACKS, M_KINGS, M_LJ, M_MID, M_MID2, M_OFFJ, M_POINTS, M_QUEENS,
+                                  M_SAFE_TR, M_TENS, M_TR_HIGH, M_TR_LOW,
                                   G_DECK, G_FIRST_LEAD, G_GAME, G_HIGH, G_LAST, G_LOW, G_LOWCAP,
                                   G_MAY_TRUMP, G_TRUMP_BROKEN)
 
@@ -74,47 +77,94 @@ def bit(c):
     return np.int64(1) << np.int64(c)
 
 
-@kernel_fn
-def lowest(m):
-    for i in range(N_BITS):
-        if (m >> i) & 1:
-            return i
-    return -1
+# Lowest set bit and bit count are the hottest operations in the engine. Each compiles to a
+# single instruction: tzcnt / popcnt on the CPU (LLVM intrinsics), ffs / popc on the GPU.
+# Both give identical results (lowest(0) = -1), so CPU and GPU still play identically.
+if TARGET == "cpu":
+    from llvmlite import ir
+    from numba.core import types
+    from numba.extending import intrinsic
+
+    @intrinsic
+    def _cttz(typingctx, x):
+        def codegen(context, builder, signature, args):
+            return builder.cttz(args[0], ir.Constant(ir.IntType(1), 0))  # cttz(0) = 64
+        return types.int64(types.int64), codegen
+
+    @intrinsic
+    def _ctlz(typingctx, x):
+        def codegen(context, builder, signature, args):
+            return builder.ctlz(args[0], ir.Constant(ir.IntType(1), 0))  # ctlz(0) = 64
+        return types.int64(types.int64), codegen
+
+    @intrinsic
+    def _ctpop(typingctx, x):
+        def codegen(context, builder, signature, args):
+            return builder.ctpop(args[0])
+        return types.int64(types.int64), codegen
+
+    @kernel_fn
+    def lowest(m):
+        z = _cttz(np.int64(m))
+        return z if z < 64 else -1
+
+    @kernel_fn
+    def popcount(m):
+        return _ctpop(np.int64(m))
+
+    @kernel_fn
+    def highest(m):
+        return 63 - _ctlz(np.int64(m))  # -1 for no bits
+else:
+    @kernel_fn
+    def lowest(m):
+        return cuda.ffs(np.int64(m)) - 1  # ffs is 1-based, 0 for no bits
+
+    @kernel_fn
+    def popcount(m):
+        return cuda.popc(np.int64(m))
+
+    @kernel_fn
+    def highest(m):
+        return 63 - cuda.clz(np.int64(m))  # -1 for no bits
 
 
 @kernel_fn
-def popcount(m):
-    n = 0
-    while m:
-        m &= m - 1
-        n += 1
-    return n
+def top_trump(m, t, tab):
+    """Highest-power card of m, a mask of trumps only (-1 if empty). Trump power order is
+    natural 2..10 < little joker < big joker < off-jack < natural J..A, and natural cards
+    sit in rank order in the bits, so this is a highest-bit plus three special checks."""
+    hi = m & tab[t, F_MASKS, M_TR_HIGH]
+    if hi:
+        return highest(hi)
+    c = tab[t, F_MASKS, M_OFFJ]
+    if c >= 0 and (m >> c) & 1:
+        return c
+    c = tab[t, F_MASKS, M_BJ]
+    if c >= 0 and (m >> c) & 1:
+        return c
+    c = tab[t, F_MASKS, M_LJ]
+    if c >= 0 and (m >> c) & 1:
+        return c
+    return highest(m & tab[t, F_MASKS, M_TR_LOW])
 
 
 @kernel_fn
-def top_power(m, t, tab):
-    """Card in m with the highest power (-1 if m is empty)."""
-    best, bp = -1, -1
-    x = m
-    while x:
-        c = lowest(x)
-        x &= x - 1
-        if tab[t, F_POWER, c] > bp:
-            best, bp = c, tab[t, F_POWER, c]
-    return best
-
-
-@kernel_fn
-def low_power(m, t, tab):
-    """Card in m with the lowest power (-1 if m is empty)."""
-    best, bp = -1, 1 << 30
-    x = m
-    while x:
-        c = lowest(x)
-        x &= x - 1
-        if tab[t, F_POWER, c] < bp:
-            best, bp = c, tab[t, F_POWER, c]
-    return best
+def low_trump(m, t, tab):
+    """Lowest-power card of m, a mask of trumps only (-1 if empty); see top_trump."""
+    lo = m & tab[t, F_MASKS, M_TR_LOW]
+    if lo:
+        return lowest(lo)
+    c = tab[t, F_MASKS, M_LJ]
+    if c >= 0 and (m >> c) & 1:
+        return c
+    c = tab[t, F_MASKS, M_BJ]
+    if c >= 0 and (m >> c) & 1:
+        return c
+    c = tab[t, F_MASKS, M_OFFJ]
+    if c >= 0 and (m >> c) & 1:
+        return c
+    return lowest(m & tab[t, F_MASKS, M_TR_HIGH])
 
 
 @kernel_fn
@@ -126,11 +176,8 @@ def natural_card(rank, suit):
 
 @kernel_fn
 def danger(c, t, tab, gf):
-    """How costly it is to hand this card to the other side."""
-    d = tab[t, F_GV, c] + 15 * tab[t, F_PTS, c]
-    if gf[G_LOWCAP] and c < 52 and c // 13 == t and tab[t, F_NRANK, c] <= 3:
-        d += 8
-    return d
+    """How costly it is to hand this card to the other side (precomputed per trump)."""
+    return tab[t, F_DANGER, c]
 
 
 @kernel_fn
@@ -211,7 +258,7 @@ def min_shed(m, t, tab, gf):
     while x:
         c = lowest(x)
         x &= x - 1
-        k = danger(c, t, tab, gf) * 10000 + (tab[t, F_ESUIT, c] == t) * 1000 + tab[t, F_POWER, c]
+        k = tab[t, F_SHED, c]
         if k < bk:
             best, bk = c, k
     return best
@@ -224,7 +271,7 @@ def min_cheap(m, t, tab, gf):
     while x:
         c = lowest(x)
         x &= x - 1
-        k = (tab[t, F_ESUIT, c] == t) * 100000000 + danger(c, t, tab, gf) * 1000 + tab[t, F_POWER, c]
+        k = tab[t, F_CHEAP, c]
         if k < bk:
             best, bk = c, k
     return best
@@ -253,7 +300,7 @@ def choose(me, hand, leads, tp, tc, tlen, t, gone, team, n, voids, rules, tab, g
         for p in range(n):
             if team[p] != team[me] and ((voids[p] >> t) & 1) == 0 and unseen_tr != 0:
                 opp_trump = True
-        top = top_power(hand & TM, t, tab)
+        top = top_trump(hand & TM, t, tab)
         boss = top >= 0 and (tab[t, F_ABOVE, top] & ~seen) == 0 and ((leads >> top) & 1) == 1
         if boss and opp_trump:  # pull trump while opponents may still hold some
             return top
@@ -271,7 +318,7 @@ def choose(me, hand, leads, tp, tc, tlen, t, gone, team, n, voids, rules, tab, g
                     safe = False
                     break
             if safe:
-                k = tab[t, F_GV, c] * 1000 + tab[t, F_POWER, c]
+                k = tab[t, F_CASH, c]
                 if k > bk:
                     best, bk = c, k
         if best >= 0:
@@ -279,48 +326,31 @@ def choose(me, hand, leads, tp, tc, tlen, t, gone, team, n, voids, rules, tab, g
         if boss:
             return top
         if pull > 0 and opp_trump and (not rules[R_PULL_T2] or popcount(gone) == n):
-            plain = np.int64(0)
-            x = leads & TM
-            while x:
-                c = lowest(x)
-                x &= x - 1
-                if danger(c, t, tab, gf) == 0:
-                    plain |= bit(c)
+            plain = leads & tab[t, F_MASKS, M_SAFE_TR]
             if popcount(plain) >= pull:
-                return low_power(plain, t, tab)
+                return low_trump(plain, t, tab)
         off = leads & ~TM
-        if lead_aces:
-            x = off
-            while x:
-                c = lowest(x)
-                x &= x - 1
-                if tab[t, F_NRANK, c] == 14:
-                    return c
+        if lead_aces and off & tab[t, F_MASKS, M_ACES]:
+            return lowest(off & tab[t, F_MASKS, M_ACES])
         if rules[R_LEAD10] >= 2:
-            x = off
+            x = off & tab[t, F_MASKS, M_TENS]
             while x:
                 c = lowest(x)
                 x &= x - 1
-                if tab[t, F_NRANK, c] == 10 and popcount(tab[t, F_ABOVE, c] & ~seen) <= rules[R_LEAD10] - 1:
+                if popcount(tab[t, F_ABOVE, c] & ~seen) <= rules[R_LEAD10] - 1:
                     return c
         best, bk = -1, np.int64(1) << 60
-        x = off
+        x = off & ~tab[t, F_MASKS, M_TENS]
         while x:
             c = lowest(x)
             x &= x - 1
-            if tab[t, F_NRANK, c] != 10:
-                k = tab[t, F_POWER, c] * 4 + tab[t, F_ESUIT, c]
-                if k < bk:
-                    best, bk = c, k
+            k = tab[t, F_SAFE, c]
+            if k < bk:
+                best, bk = c, k
         if best >= 0:
             return best
-        if rules[R_LEAD10]:
-            x = off
-            while x:
-                c = lowest(x)
-                x &= x - 1
-                if tab[t, F_NRANK, c] == 10:
-                    return c
+        if rules[R_LEAD10] and off & tab[t, F_MASKS, M_TENS]:
+            return lowest(off & tab[t, F_MASKS, M_TENS])
         return min_shed(leads, t, tab, gf)
 
     lead = tab[t, F_ESUIT, tc[0]]
@@ -333,13 +363,10 @@ def choose(me, hand, leads, tp, tc, tlen, t, gone, team, n, voids, rules, tab, g
         pts += danger(tc[i], t, tab, gf)
         tmask |= bit(tc[i])
 
-    beaters = np.int64(0)
-    x = opts
-    while x:
-        c = lowest(x)
-        x &= x - 1
-        if beats(c, wc, lead, t, tab):
-            beaters |= bit(c)
+    beaters = tab[t, F_ABOVE, wc]
+    if tab[t, F_ESUIT, wc] != t:
+        beaters |= TM
+    beaters &= opts
 
     bj = rules[R_BANK_JACK]
     jack = natural_card(11, t)
@@ -367,7 +394,7 @@ def choose(me, hand, leads, tp, tc, tlen, t, gone, team, n, voids, rules, tab, g
                 while x:
                     c = lowest(x)
                     x &= x - 1
-                    k = danger(c, t, tab, gf) * 1000 - tab[t, F_POWER, c]
+                    k = tab[t, F_SMEAR, c]
                     if k > bk:
                         best, bk = c, k
             return best
@@ -377,7 +404,7 @@ def choose(me, hand, leads, tp, tc, tlen, t, gone, team, n, voids, rules, tab, g
         # trump with the 2/3 of trump: takes the trick and banks the Low point
         low = beaters & tab[t, F_ESM, t] & (bit(natural_card(2, t)) | bit(natural_card(3, t)))
         if low:
-            c = low_power(low, t, tab)
+            c = low_trump(low, t, tab)
             m = rules[R_BANK_LOW]
             if m == 3 or last or (m == 2 and pts > 0) or (m == 4 and pts >= ruff_min) or \
                     holds(c, me, tlen, n, team, lead, t, gone | hand | tmask | bit(c), voids, tab):
@@ -424,7 +451,7 @@ def choose(me, hand, leads, tp, tc, tlen, t, gone, team, n, voids, rules, tab, g
 def pitch_card(hand, t, mode, schoolboy, tab):
     """The bidder's first lead. mode: 0 top, 1 smart, 2 keepjack, 3 smart2."""
     tm = hand & tab[t, F_ESM, t]
-    top = top_power(tm, t, tab)
+    top = top_trump(tm, t, tab)
     if top < 0:  # no trump to pitch (only possible with unusual deals): lead anything
         return lowest(hand)
     ace, king, jack = natural_card(14, t), natural_card(13, t), natural_card(11, t)
@@ -438,25 +465,16 @@ def pitch_card(hand, t, mode, schoolboy, tab):
     if mode == 2:  # keepjack
         if top_rank >= 12:
             return top
-        x = natural
-        while x:
-            c = lowest(x)
-            x &= x - 1
-            if 4 <= tab[t, F_NRANK, c] <= 9:
-                return c
-        return low_power(not_jack, t, tab) if not_jack else top
+        if natural & tab[t, F_MASKS, M_MID]:
+            return lowest(natural & tab[t, F_MASKS, M_MID])
+        return low_trump(not_jack, t, tab) if not_jack else top
     if top == ace:
         return top
     # no Ace: lead a middle trump, keeping the Jack, 10 and low trump to score later
-    x = natural
-    while x:
-        c = lowest(x)
-        x &= x - 1
-        r = tab[t, F_NRANK, c]
-        if 4 <= r <= 9 or r == 12 or r == 13:
-            return c
+    if natural & tab[t, F_MASKS, M_MID2]:
+        return lowest(natural & tab[t, F_MASKS, M_MID2])
     if mode == 3 and not_jack:
-        return low_power(not_jack, t, tab)
+        return low_trump(not_jack, t, tab)
     return top
 
 
@@ -483,20 +501,17 @@ def options(hand, gone, tc, tlen, t, tab, gf):
 
 @kernel_fn
 def game_points(m, t, tab):
-    g = 0
-    x = m
-    while x:
-        c = lowest(x)
-        x &= x - 1
-        g += tab[t, F_GV, c]
-    return g
+    """Game count: 10 per Ten, 4 per Ace, 3 per King, 2 per Queen, 1 per Jack."""
+    return (10 * popcount(m & tab[t, F_MASKS, M_TENS]) + 4 * popcount(m & tab[t, F_MASKS, M_ACES]) +
+            3 * popcount(m & tab[t, F_MASKS, M_KINGS]) + 2 * popcount(m & tab[t, F_MASKS, M_QUEENS]) +
+            popcount(m & tab[t, F_MASKS, M_JACKS]))
 
 
 @kernel_fn
 def card_points(m, t, tab):
     """Points for captured point cards (Jack, off-jack, jokers, 10/3/5/9 of trump)."""
     g = 0
-    x = m
+    x = m & tab[t, F_MASKS, M_POINTS]
     while x:
         c = lowest(x)
         x &= x - 1
@@ -512,8 +527,8 @@ def score_into(won, t, lo_team, last_team, sc, tab, gf):
     for k in range(nteams):
         alltr |= won[k] & tab[t, F_ESM, t]
         sc[k] = 0
-    hi = top_power(alltr, t, tab)
-    lo = low_power(alltr, t, tab)
+    hi = top_trump(alltr, t, tab)
+    lo = low_trump(alltr, t, tab)
     best, nbest, bt = -1, 0, -1
     for k in range(nteams):
         if hi >= 0 and (won[k] >> hi) & 1:
@@ -541,8 +556,8 @@ def search_value(won, t, my_team, last_team, tab, gf):
     alltr = np.int64(0)
     for k in range(nteams):
         alltr |= won[k] & tab[t, F_ESM, t]
-    hi = top_power(alltr, t, tab)
-    lo = low_power(alltr, t, tab)
+    hi = top_trump(alltr, t, tab)
+    lo = low_trump(alltr, t, tab)
     own, total = 0, 0
     best, nbest, bt = -1, 0, -1
     for k in range(nteams):
