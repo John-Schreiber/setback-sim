@@ -23,3 +23,6 @@ bidchart_6p_t3.csv
 
 # local archive of dropped outputs (PDF / Excel generation)
 archive/
+
+# coordinator data (job queue and results)
+dist-data/

@@ -1,0 +1,12 @@
+# Coordinator (run on one machine, e.g. Windows with Docker Desktop):
+#   docker compose -f docker/compose.coordinator.yml up -d --build
+services:
+  coordinator:
+    build: {context: .., dockerfile: docker/Dockerfile}
+    image: setback-sim:latest
+    command: ["python", "-m", "cardsim.dist.coordinator", "--data", "/data", "--host", "0.0.0.0", "--port", "8700"]
+    ports: ["8700:8700"]
+    volumes: ["../dist-data:/data"]
+    environment:
+      COORDINATOR_TOKEN: ${COORDINATOR_TOKEN:-}
+    restart: unless-stopped

@@ -136,8 +136,8 @@ def check(preset, nplayers, deals=1500, search_deals=40):
     srch = np.full(g.nteams, 4, np.int64)
     pts = []
     for i in range(deals + search_deals):
-        hands, t = fast.deal(i, nplayers, rules.deal_size, rules.hand_size, rules.refill, 0,
-                             g.tab, g.gf, g.tw, g.tl)
+        hands, t, _ = fast.deal(i, nplayers, rules.deal_size, rules.hand_size, rules.refill, 0,
+                             g.tab, g.gf, g.tw, g.tl, g.tx)
         assert all(bin(int(h)).count("1") == rules.hand_size for h in hands), "hand sizes"
         assert np.bitwise_and.reduce(hands) == 0 or nplayers == 1
         for a in range(nplayers):

@@ -13,3 +13,4 @@ dependencies = [
 
 [project.optional-dependencies]
 gpu = ["numba-cuda[cu13]>=0.30"]
+dist = ["fastapi>=0.110", "uvicorn>=0.30"]

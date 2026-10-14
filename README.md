@@ -43,15 +43,16 @@ leads first and that card sets trump; you may always trump in. 4-handed is two t
 
 ## Running it
 
+With [uv](https://docs.astral.sh/uv/):
+
 ```
-uv venv -p 3.14 .venv
-uv pip install --python .venv -e ".[gpu]"      # gpu needs an NVIDIA card
-.venv/Scripts/python setback.py hand "AS JS 2S KH 9D 4C" -p 4 --search 16 --engine gpu
-.venv/Scripts/python setback.py lookup "AS JS 2S KH 9D 4C" -p 6     # needs the every-hand tables
-.venv/Scripts/python test_fast.py && .venv/Scripts/python test_gpu.py
+uv sync --extra gpu                 # gpu needs an NVIDIA card; leave it off for CPU only
+uv run python setback.py hand "AS JS 2S KH 9D 4C" -p 4 --search 16 --engine gpu
+uv run python setback.py lookup "AS JS 2S KH 9D 4C" -p 6     # needs the every-hand tables
+uv run python tests/test_pitch_core.py && uv run python tests/test_pitch_variants.py
 ```
 
-On Linux or macOS, use `.venv/bin/python` instead.
+To spread big studies over several GPU machines, see [docs/distributed.md](docs/distributed.md).
 
 | Script | What it does |
 |---|---|

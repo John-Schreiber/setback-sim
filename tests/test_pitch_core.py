@@ -38,7 +38,7 @@ def check_rules(nplayers, preset, deals=3000):
         rules_new = np.array([new.rules_row(r) for r in (rl * g.nteams if len(rl) == 1 else rl)], np.int64)
         for i in range(deals):
             seed = 1000 * vi + i
-            hands, t = new.deal(seed, nplayers, 6, 6, False, 0, g.tab, g.gf, g.tw, g.tl)
+            hands, t, _ = new.deal(seed, nplayers, 6, 6, False, 0, g.tab, g.gf, g.tw, g.tl, g.tx)
             oh, ot, _ = old.deal_batch(seed, 1, nplayers, 0)
             assert np.array_equal(hands, oh[0]) and t == ot[0], ("deal", seed)
             sc_o, won_o = old.play_game_won(hands, 0, t, g.team, g.nteams, lowcap, True, rules_old, zero)
@@ -54,7 +54,7 @@ def check_search(nplayers, deals=300, samples=8):
     s = np.full(g.nteams, samples, np.int64)
     a = old.survey(deals, nplayers, g.team, g.nteams, True, True, rules, s, 4242)
     b = new.survey(deals, nplayers, 6, 6, False, g.team, g.nteams, True, g.rules_bt, s, g.tab, g.gf,
-                   g.tw, g.tl, 4242)
+                   g.tw, g.tl, g.tx, 4242)
     assert np.array_equal(a[:, old.F_OWN], b[:, 2]) and np.array_equal(a[:, old.F_OPP], b[:, 3])
     print(f"  {nplayers}-handed setback4: {deals} deals identical (search, {samples} samples)")
 

@@ -1,0 +1,15 @@
+.venv
+.git
+**/__pycache__
+**/*.nbi
+**/*.nbc
+archive
+old_trump_weights
+allhands_*
+dist-data
+charts
+*.npz
+*.npy
+*.log
+*.csv.gz
+tests

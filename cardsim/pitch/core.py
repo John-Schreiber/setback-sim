@@ -16,7 +16,38 @@ from cardsim.pitch.tables import (F_ABOVE, F_ESM, F_ESUIT, F_GV, F_NRANK, F_POWE
                                   G_MAY_TRUMP, G_TRUMP_BROKEN)
 
 TARGET = globals().get("TARGET", "cpu")
+
+
+def _clear_stale_numba_cache():
+    """Numba's on-disk cache only notices edits to a function's own file, but the
+    compiled CPU engine (fast.py) inlines this file's functions. When core.py changes,
+    drop every cached function in this package so nothing runs stale code."""
+    import glob
+    import hashlib
+    import os
+    here = os.path.dirname(os.path.abspath(__file__))
+    with open(os.path.join(here, "core.py"), "rb") as fh:
+        digest = hashlib.sha256(fh.read()).hexdigest()
+    cache = os.path.join(here, "__pycache__")
+    stamp = os.path.join(cache, "core.sources.sha256")
+    try:
+        with open(stamp) as fh:
+            old = fh.read()
+    except OSError:
+        old = ""
+    if old != digest:
+        for f in glob.glob(os.path.join(cache, "*.nbi")) + glob.glob(os.path.join(cache, "*.nbc")):
+            try:
+                os.remove(f)
+            except OSError:
+                pass
+        os.makedirs(cache, exist_ok=True)
+        with open(stamp, "w") as fh:
+            fh.write(digest)
+
+
 if TARGET == "cpu":
+    _clear_stale_numba_cache()
     from numba import njit
 
     def kernel_fn(f):

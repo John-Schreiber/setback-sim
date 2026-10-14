@@ -34,7 +34,7 @@ def check_rules_exact(preset, n, deals=50_000):
     r = g.rules
     zero = np.zeros(g.nteams, np.int64)
     cpu = fast.survey(deals, n, r.deal_size, r.hand_size, r.refill, g.team, g.nteams, True, g.rules_bt,
-                      zero, g.tab, g.gf, g.tw, g.tl, 777)
+                      zero, g.tab, g.gf, g.tw, g.tl, g.tx, 777)
     gp = gpu.survey(deals, g, zero, seed=777)
     assert np.array_equal(cpu, gp), (preset, n, np.argwhere((cpu != gp).any(axis=1))[:5])
     print(f"  {preset:20} {n}-handed: {deals} rule-based games identical")
@@ -48,7 +48,7 @@ def check_search_stats(preset, n, deals=20_000, samples=16):
     s = np.full(g.nteams, samples, np.int64)
     t0 = time.time()
     cpu = fast.survey(deals, n, r.deal_size, r.hand_size, r.refill, g.team, g.nteams, True, g.rules_bt, s,
-                      g.tab, g.gf, g.tw, g.tl, 999)
+                      g.tab, g.gf, g.tw, g.tl, g.tx, 999)
     tc = time.time() - t0
     t0 = time.time()
     gp = gpu.survey(deals, g, s, seed=999)
