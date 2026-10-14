@@ -9,7 +9,8 @@ looked up without downloading them. Output goes to site/_build/ (index.html and 
                      points, highest bid with expected points >= 0 (charts/*.csv)
   chart_ev.parquet   the same groups, one row per bid: expected points of that bid
   condensed.parquet  4-point Setback, from the every-hand tables (condensed_*.csv)
-  allhands.parquet   every distinct 6-card hand, 4-point Setback, as bidder. Built from the
+  allhands.parquet.zip
+                     every distinct 6-card hand, 4-point Setback, as bidder. Built from the
                      release tables allhands_*.csv.gz, or copied as is if DIR already has an
                      allhands.parquet (the release carries one, so the site build skips the
                      slow part); skipped if neither is present
@@ -35,6 +36,13 @@ from cardsim.pitch.rules import PRESETS, describe  # noqa: E402
 
 OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "_build")
 SUITS = "SHDC"
+
+
+# GitHub Pages gzips most responses on the fly and then serves byte ranges of the gzipped
+# copy, which breaks range reads. It leaves .zip (and .gz, .png) alone, so the big table,
+# the one file the page reads by range, is published under a .zip name. It is plain
+# Parquet inside; the release carries it as allhands.parquet.
+ALLHANDS = "allhands.parquet.zip"
 
 
 def write(df, name, row_group_size=None):
@@ -129,16 +137,16 @@ def main():
              "condensed": write(condensed(), "condensed.parquet")}
     pre = os.path.join(a.tables, "allhands.parquet")
     if os.path.exists(pre):
-        shutil.copy(pre, os.path.join(OUT, "data", "allhands.parquet"))
+        shutil.copy(pre, os.path.join(OUT, "data", ALLHANDS))
         sizes["allhands"] = pq.ParquetFile(pre).metadata.num_rows
     else:
         ah = allhands(a.tables)
         if ah is not None:
-            sizes["allhands"] = write(ah, "allhands.parquet", row_group_size=16_384)
+            sizes["allhands"] = write(ah, ALLHANDS, row_group_size=16_384)
     with open(os.path.join(OUT, "data", "tables.json"), "w") as f:
         json.dump(sizes, f)
     for name, rows in sizes.items():
-        mb = os.path.getsize(os.path.join(OUT, "data", f"{name}.parquet")) / 1e6
+        mb = os.path.getsize(os.path.join(OUT, "data", ALLHANDS if name == "allhands" else f"{name}.parquet")) / 1e6
         print(f"{name}.parquet: {rows:,} rows, {mb:.1f} MB")
 
 

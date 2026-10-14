@@ -133,7 +133,7 @@
     Data: <a href="https://github.com/John-Schreiber/setback-sim/tree/main/charts">chart CSVs</a> ·
     <a href="https://github.com/John-Schreiber/setback-sim/releases">every-hand tables</a> ·
     Parquet: <a href="data/charts.parquet">charts</a>, <a href="data/chart_ev.parquet">chart_ev</a>,
-    <a href="data/allhands.parquet">allhands</a>.</footer>
+    <a href="https://github.com/John-Schreiber/setback-sim/releases/latest/download/allhands.parquet">allhands</a>.</footer>
 </main>
 
 <script type="module">
@@ -156,15 +156,27 @@ async function start() {
   const db = new duckdb.AsyncDuckDB(new duckdb.VoidLogger(), new Worker(workerUrl));
   await db.instantiate(bundle.mainModule, bundle.pthreadWorker);
   URL.revokeObjectURL(workerUrl);
-  // Parquet is read with HTTP range requests (only the row groups a query needs)
+  // the every-hand table is read with HTTP range requests (only the row groups a query needs)
   await db.open({ filesystem: { reliableHeadRequests: false, allowFullHTTPReads: true, forceFullHTTPReads: false } });
   conn = await db.connect();
   let present = {};
   try { present = await (await fetch("data/tables.json")).json(); } catch (e) { /* no listing: core tables only */ }
+  // The small tables (under 1 MB together) are fetched whole. The every-hand table (50 MB) is
+  // read by range; it is published as .zip because GitHub Pages gzips other file types and
+  // then serves ranges of the gzipped copy (site/build.py).
+  const small = TABLES.filter((t) => t !== "allhands");
+  const bufs = await Promise.all(small.map(async (t) => {
+    const r = await fetch(`data/${t}.parquet`);
+    if (!r.ok) throw new Error(`data/${t}.parquet: ${r.status}`);
+    return new Uint8Array(await r.arrayBuffer());
+  }));
+  for (let i = 0; i < small.length; i++) await db.registerFileBuffer(`${small[i]}.parquet`, bufs[i]);
+  if (present.allhands) {
+    const url = new URL("data/allhands.parquet.zip", location.href).href;
+    await db.registerFileURL("allhands.parquet", url, duckdb.DuckDBDataProtocol.HTTP, true);
+  }
   for (const t of TABLES) {
     if (t === "allhands" && !present.allhands) continue;
-    const url = new URL(`data/${t}.parquet`, location.href).href;
-    await db.registerFileURL(`${t}.parquet`, url, duckdb.DuckDBDataProtocol.HTTP, true);
     await conn.query(`CREATE VIEW ${t} AS SELECT * FROM '${t}.parquet'`);
   }
   return present;

@@ -24,17 +24,15 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.3.0
       - name: Every-hand table from the latest release
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh release download --pattern 'allhands.parquet' --dir tables || echo "no every-hand table; building without it"
       - name: Build
         run: uv run --no-project --python 3.14 --with pandas --with pyarrow python site/build.py --tables tables
-      - name: Probe (temporary) which extensions Pages leaves uncompressed
-        run: for e in zip gz png wasm bin arrow br; do cp site/_build/data/charts.parquet site/_build/data/probe.$e; done
-      - uses: actions/upload-pages-artifact@v3
+      - uses: actions/upload-pages-artifact@v5
         with:
           path: site/_build
 
@@ -46,4 +44,4 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5
