@@ -32,6 +32,8 @@ jobs:
         run: gh release download --pattern 'allhands.parquet' --dir tables || echo "no every-hand table; building without it"
       - name: Build
         run: uv run --no-project --python 3.14 --with pandas --with pyarrow python site/build.py --tables tables
+      - name: Probe (temporary) which extensions Pages leaves uncompressed
+        run: for e in zip gz png wasm bin arrow br; do cp site/_build/data/charts.parquet site/_build/data/probe.$e; done
       - uses: actions/upload-pages-artifact@v3
         with:
           path: site/_build
