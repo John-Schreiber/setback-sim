@@ -5,8 +5,12 @@ measured speed (the first slice of each study is a short calibration run, which 
 pays for compiling). A background thread sends heartbeats while a slice runs.
 
     python -m cardsim.dist.worker --url http://192.168.1.10:8700
-Options: --device auto|gpu|cpu, --target-minutes 7.5, --exit-when-idle.
+Options: --device auto|gpu|cpu, --target-minutes 7.5, --exit-when-idle, --auto-update.
 Set COORDINATOR_TOKEN if the coordinator requires one.
+
+With --auto-update (or WORKER_AUTO_UPDATE=1), a slice of a study submitted with
+different code makes the worker fetch that code from GitHub and restart on it
+(update.py). Without it, the worker refuses such slices.
 """
 import argparse
 import io
@@ -22,7 +26,7 @@ import uuid
 
 import numpy as np
 
-from cardsim.dist import tasks
+from cardsim.dist import tasks, update
 
 
 class Client:
@@ -60,12 +64,13 @@ def detect_devices(choice):
 
 
 def work(url, token=None, device="auto", target_minutes=7.5, exit_when_idle=False, name=None,
-         idle_sleep=15.0, heartbeat_every=20.0, log=print):
+         idle_sleep=15.0, heartbeat_every=20.0, log=print, auto_update=False):
     client = Client(url, token)
     worker = name or f"{socket.gethostname()}-{uuid.uuid4().hex[:6]}"
     devices = detect_devices(device)
     rates = {}  # study -> items per second measured on this worker
-    log(f"worker {worker}: devices {devices}, slices of about {target_minutes} min, coordinator {url}")
+    log(f"worker {worker}: devices {devices}, slices of about {target_minutes} min, coordinator {url}, "
+        f"code {tasks.code_version()}{', auto-update' if auto_update else ''}")
     while True:
         try:
             job = client.post("/lease", {"worker": worker, "devices": devices, "rates": rates,
@@ -81,6 +86,17 @@ def work(url, token=None, device="auto", target_minutes=7.5, exit_when_idle=Fals
             time.sleep(idle_sleep)
             continue
         jid, n = job["job"], job["end"] - job["start"]
+        need = job["params"].get("code")
+        if need and need != tasks.code_version() and auto_update:
+            root = update.fetch(need, log)
+            if root:
+                try:  # hand the slice straight back rather than let its lease time out
+                    client.post(f"/jobs/{jid}/fail?worker={worker}", f"restarting on code {need}".encode(),
+                                "text/plain")
+                except Exception:
+                    pass
+                log(f"restarting on code {need} from {root}")
+                update.restart(root)
         stop = threading.Event()
         lost = threading.Event()
 
@@ -131,8 +147,11 @@ def main():
     ap.add_argument("--target-minutes", type=float, default=float(os.environ.get("TARGET_MINUTES", 7.5)))
     ap.add_argument("--exit-when-idle", action="store_true")
     ap.add_argument("--name", default=os.environ.get("WORKER_NAME"))
+    ap.add_argument("--auto-update", action="store_true", default=os.environ.get("WORKER_AUTO_UPDATE") == "1",
+                    help="fetch the code a study needs from GitHub and restart on it (update.py)")
     a = ap.parse_args()
-    work(a.url, os.environ.get("COORDINATOR_TOKEN"), a.device, a.target_minutes, a.exit_when_idle, a.name)
+    work(a.url, os.environ.get("COORDINATOR_TOKEN"), a.device, a.target_minutes, a.exit_when_idle, a.name,
+         auto_update=a.auto_update)
 
 
 if __name__ == "__main__":

@@ -97,6 +97,19 @@ the same result. `GET /studies/{id}/slices` shows which worker and device ran ea
 
 ## Updating the code
 
-Rebuild the images on every machine (`docker compose ... up -d --build`) after pulling
-new code. A study records the code version it was submitted with; a worker running
-different code refuses its slices and logs why, so results never mix versions.
+A study records the code version it was submitted with (a hash of the files that decide
+how games are played, `COMPUTE_FILES` in `cardsim/dist/tasks.py`); a worker running
+different code never mixes it into the results.
+
+**Auto-update (opt in).** Start workers with `--auto-update` (Docker: `WORKER_AUTO_UPDATE=1`
+in the environment or `docker/.env`; native Windows: `scripts/start-native-workers.ps1
+-AutoUpdate`). On a slice of a study with different code, the worker looks for that
+version on GitHub (the tip of `main`, then its last 30 commits), uses a snapshot only if
+its files hash to exactly the study's version, unpacks it under `~/.cache/setback-sim/code/`
+(a Docker volume for containers) and restarts on it. So: push, then submit; the workers
+follow. The repo is fixed in `cardsim/dist/update.py`, not taken from the coordinator, but
+anyone who can push to it and submit studies runs code on every auto-updating worker.
+
+**Manual update.** Without auto-update a worker refuses such slices and logs why: rebuild
+the images on every machine (`docker compose ... up -d --build`) after pulling new code,
+and restart native workers. A new dependency (`pyproject.toml`) always needs this.

@@ -14,5 +14,10 @@ services:
       COORDINATOR_URL: ${COORDINATOR_URL:?set COORDINATOR_URL, e.g. http://192.168.1.10:8700}
       COORDINATOR_TOKEN: ${COORDINATOR_TOKEN:-}
       TARGET_MINUTES: ${TARGET_MINUTES:-7.5}
+      WORKER_AUTO_UPDATE: ${WORKER_AUTO_UPDATE:-0}  # 1: fetch a study's code from GitHub (update.py)
       NUMBA_NUM_THREADS: ${CPU_THREADS:-}
+    volumes: ["worker-code:/root/.cache/setback-sim"]  # code fetched by auto-update
     restart: unless-stopped
+
+volumes:
+  worker-code:
