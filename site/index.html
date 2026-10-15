@@ -65,9 +65,11 @@
   .split { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 20px; align-items: start; }
   @media (max-width: 820px) { .split { grid-template-columns: 1fr; } }
   .card { border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; background: var(--bg); }
+  .split > .card { position: sticky; top: 12px; max-height: calc(100vh - 24px); overflow-y: auto; }
+  @media (max-width: 820px) { .split > .card { position: static; max-height: none; } }
+  .card table { width: 100%; margin: 8px 0 6px; font-variant-numeric: tabular-nums; }
+  .card .muted { font-size: .85rem; }
   .big { font-size: 2rem; font-weight: 700; line-height: 1.1; }
-  .bar { height: 8px; background: var(--b0); border-radius: 4px; overflow: hidden; }
-  .bar > div { height: 100%; background: var(--accent); }
   #status { font-size: .85rem; color: var(--muted); margin-top: 8px; min-height: 1.4em; }
   footer { margin-top: 28px; color: var(--muted); font-size: .85rem; }
   code { font-family: var(--mono); font-size: .9em; }
@@ -97,12 +99,12 @@
     <div class="split">
       <div>
         <p class="muted">Each cell: the highest bid with expected points ≥ 0 for that trump holding, so how far
-          to go in an auction (often the best opening is lower; click a cell for every bid's value).
+          to go in an auction (a higher bid never scores more, so bid only as high as it takes to win).
           Rows: trump honors held; columns: other small trumps. * = shooting the moon also pays.
-          Blank = fewer than 200 hands seen.</p>
+          Blank = fewer than 200 hands seen. Hover a cell for every bid's value; click to pin it.</p>
         <div class="scroll"><table class="grid" id="grid"></table></div>
       </div>
-      <div class="card" id="detail"><span class="muted">Click a cell for details.</span></div>
+      <div class="card" id="detail"><span class="muted">Hover or click a cell for details.</span></div>
     </div>
   </section>
 
@@ -206,21 +208,27 @@ const level = (bid, p) => (bid ? 1 + Math.round(4 * (bid - p.min_bid) / Math.max
 async function drawChart() {
   const preset = $("preset").value, players = +$("players").value, p = presets[preset];
   $("summary").textContent = p.summary;
-  const rows = await q(`SELECT honors, small, hands, max_bid, ev_moon FROM charts
-                        WHERE preset = ${sqlStr(preset)} AND players = ${players}`);
+  const where = `preset = ${sqlStr(preset)} AND players = ${players}`;
+  const [rows, evRows] = await Promise.all([
+    q(`SELECT honors, small, hands, avg, opp, max_bid, ev_moon, net_moon FROM charts WHERE ${where}`),
+    q(`SELECT honors, small, bid, ev, net FROM chart_ev WHERE ${where} ORDER BY bid`)]);
   const grid = $("grid");
-  $("detail").innerHTML = `<span class="muted">Click a cell for details.</span>`;
+  pinned = null;
+  showDetail(null);
   if (!rows.length) {
     grid.innerHTML = `<tr><td class="l muted">No ${players}-handed chart for these rules (a ${p.deal_size}-card deal needs more cards).</td></tr>`;
     return;
   }
   const cell = new Map(), hons = new Set();
+  chartCells = cell;
   let maxSmall = 0;
   for (const r of rows) {
     r.small = num(r.small); r.hands = num(r.hands); r.max_bid = num(r.max_bid);
+    r.evs = [];
     cell.set(`${r.honors}|${r.small}`, r);
     if (r.hands >= 200) { hons.add(r.honors); maxSmall = Math.max(maxSmall, r.small); }
   }
+  for (const e of evRows) cell.get(`${e.honors}|${num(e.small)}`)?.evs.push({ bid: num(e.bid), ev: e.ev, net: e.net });
   const cols = [...Array(maxSmall + 1).keys()];
   const order = [...hons].sort((a, b) => cmpKeys(honorsKey(a), honorsKey(b)));
   let html = `<thead><tr><th class="l">trump honors</th>${cols.map((s) => `<th>+${s}</th>`).join("")}</tr></thead><tbody>`;
@@ -236,27 +244,39 @@ async function drawChart() {
   }
   grid.innerHTML = html + "</tbody>";
 }
-$("grid").addEventListener("click", async (e) => {
+let chartCells = new Map(), pinned = null;  // pinned: the clicked cell (td)
+function showDetail(td) {
+  const r = td && chartCells.get(`${td.dataset.h}|${td.dataset.s}`);
+  if (!r) { $("detail").innerHTML = `<span class="muted">Hover or click a cell for details.</span>`; return; }
+  const s = r.small, ceiling = r.max_bid;
+  $("detail").innerHTML = `
+    <div class="muted">${esc(r.honors || "no honors")} + ${s} small trump${s === 1 ? "" : "s"} · ${r.hands.toLocaleString()} hands</div>
+    <div class="big">${ceiling ? "up to " + ceiling : "pass"}</div>
+    <p class="muted">${ceiling ? `Worth bidding as high as ${ceiling} to win the auction.` : "No bid has expected points ≥ 0."}
+      Takes ${r.avg.toFixed(2)} points on average; the opponents ${r.opp.toFixed(2)}.</p>
+    <table><tr><th class="l">bid</th><th title="the bidding team's score change: points taken if made, minus the bid if set">expected</th>
+      <th title="expected, minus the points the opponents score on the hand">net of opp.</th></tr>
+    ${r.evs.map((x) => `<tr><td class="l">${x.bid}</td><td>${signed(x.ev)}</td><td>${signed(x.net)}</td></tr>`).join("")}
+    ${r.ev_moon != null ? `<tr><td class="l">moon</td><td>${signed(r.ev_moon)}</td><td>${signed(r.net_moon)}</td></tr>` : ""}
+    </table>
+    <p class="muted">Expected: your score change (points taken if made, minus the bid if set).
+      Net: that minus what the opponents score, i.e. how far the hand moves you against them.
+      A higher bid scores the same when made and only adds ways to be set, so its value is
+      never higher: bid up only as far as it takes to win the auction.</p>`;
+}
+$("grid").addEventListener("mouseover", (e) => {
+  const td = e.target.closest("td.c");
+  if (td && !td.classList.contains("blank")) showDetail(td);
+});
+$("grid").addEventListener("mouseleave", () => showDetail(pinned));
+$("grid").addEventListener("click", (e) => {
   const td = e.target.closest("td.c");
   if (!td || td.classList.contains("blank")) return;
   for (const o of $("grid").querySelectorAll(".sel")) o.classList.remove("sel");
+  if (pinned === td) { pinned = null; return; }
   td.classList.add("sel");
-  const where = `preset = ${sqlStr($("preset").value)} AND players = ${+$("players").value}
-                 AND honors = ${sqlStr(td.dataset.h)} AND small = ${+td.dataset.s}`;
-  const [r] = await q(`SELECT hands, avg, opp, max_bid, ev_moon, net_moon FROM charts WHERE ${where}`);
-  const evs = (await q(`SELECT bid, ev, net FROM chart_ev WHERE ${where} ORDER BY bid`)).map((x) => ({ bid: num(x.bid), ev: x.ev, net: x.net }));
-  const best = evs.reduce((a, b) => (b.ev > a.ev ? b : a));
-  const top = Math.max(...evs.map((x) => Math.abs(x.ev)), 1e-9);
-  const s = +td.dataset.s, ceiling = num(r.max_bid);
-  $("detail").innerHTML = `
-    <div class="muted">${esc(td.dataset.h || "no honors")} + ${s} small trump${s === 1 ? "" : "s"} · ${num(r.hands).toLocaleString()} hands</div>
-    <div class="big">${ceiling ? "up to " + ceiling : "pass"}</div>
-    <p class="muted">Average ${r.avg.toFixed(2)} points taken, ${r.opp.toFixed(2)} by the opponents. Most valuable bid: ${best.ev >= 0 ? best.bid + " (" + signed(best.ev) + ")" : "none"}.</p>
-    <table><tr><th class="l">bid</th><th>expected points</th><th></th><th title="score change minus the opponents' points on the hand">net of opponents</th></tr>
-    ${evs.map((x) => `<tr><td class="l">${x.bid}</td><td>${signed(x.ev)}</td>
-      <td style="width:110px"><div class="bar"><div style="width:${Math.max(0, 100 * x.ev / top)}%"></div></div></td><td>${signed(x.net)}</td></tr>`).join("")}
-    ${r.ev_moon != null ? `<tr><td class="l">moon</td><td>${signed(r.ev_moon)}</td><td></td><td>${signed(r.net_moon)}</td></tr>` : ""}
-    </table>`;
+  pinned = td;
+  showDetail(td);
 });
 
 // ---------------------------------------------------------------- hand lookup
@@ -297,7 +317,6 @@ async function lookup() {
   const bids = [2, 3, 4].map((b) => ({ b, p: r[`p${b}`], ev: r[`ev${b}`] }));
   const ok = bids.filter((x) => x.ev >= 0);
   const ceiling = ok.length ? ok[ok.length - 1].b : 0;
-  const best = bids.reduce((a, x) => (x.ev > a.ev ? x : a));
   const shown = cards.slice().sort((a, b) => a[1] - b[1] || b[0] - a[0])
     .map(([rk, s]) => (RANKS[rk] === "T" ? "10" : RANKS[rk]) + SYM[s]).join(" ");
   out.innerHTML = `
@@ -310,7 +329,7 @@ async function lookup() {
         the bid; expected points count the points taken when made and minus the bid when set.</p>
     </div><div class="card">
       <div class="muted">Go up to</div><div class="big">${ceiling || "pass"}</div>
-      <p class="muted">Most valuable bid: ${best.ev >= 0 ? best.b + " (" + signed(best.ev) + ")" : "none (pass)"}.</p>
+      <p class="muted">${ceiling ? "The highest bid with expected points ≥ 0: how far to go to win the auction." : "No bid has expected points ≥ 0."}</p>
     </div></div>`;
 }
 $("lookup").addEventListener("click", lookup);
