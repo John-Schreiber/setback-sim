@@ -243,19 +243,19 @@ $("grid").addEventListener("click", async (e) => {
   td.classList.add("sel");
   const where = `preset = ${sqlStr($("preset").value)} AND players = ${+$("players").value}
                  AND honors = ${sqlStr(td.dataset.h)} AND small = ${+td.dataset.s}`;
-  const [r] = await q(`SELECT hands, avg, max_bid, ev_moon FROM charts WHERE ${where}`);
-  const evs = (await q(`SELECT bid, ev FROM chart_ev WHERE ${where} ORDER BY bid`)).map((x) => ({ bid: num(x.bid), ev: x.ev }));
+  const [r] = await q(`SELECT hands, avg, opp, max_bid, ev_moon, net_moon FROM charts WHERE ${where}`);
+  const evs = (await q(`SELECT bid, ev, net FROM chart_ev WHERE ${where} ORDER BY bid`)).map((x) => ({ bid: num(x.bid), ev: x.ev, net: x.net }));
   const best = evs.reduce((a, b) => (b.ev > a.ev ? b : a));
   const top = Math.max(...evs.map((x) => Math.abs(x.ev)), 1e-9);
   const s = +td.dataset.s, ceiling = num(r.max_bid);
   $("detail").innerHTML = `
     <div class="muted">${esc(td.dataset.h || "no honors")} + ${s} small trump${s === 1 ? "" : "s"} · ${num(r.hands).toLocaleString()} hands</div>
     <div class="big">${ceiling ? "up to " + ceiling : "pass"}</div>
-    <p class="muted">Average ${r.avg.toFixed(2)} points taken. Most valuable bid: ${best.ev >= 0 ? best.bid + " (" + signed(best.ev) + ")" : "none"}.</p>
-    <table><tr><th class="l">bid</th><th>expected points</th><th></th></tr>
+    <p class="muted">Average ${r.avg.toFixed(2)} points taken, ${r.opp.toFixed(2)} by the opponents. Most valuable bid: ${best.ev >= 0 ? best.bid + " (" + signed(best.ev) + ")" : "none"}.</p>
+    <table><tr><th class="l">bid</th><th>expected points</th><th></th><th title="score change minus the opponents' points on the hand">net of opponents</th></tr>
     ${evs.map((x) => `<tr><td class="l">${x.bid}</td><td>${signed(x.ev)}</td>
-      <td style="width:110px"><div class="bar"><div style="width:${Math.max(0, 100 * x.ev / top)}%"></div></div></td></tr>`).join("")}
-    ${r.ev_moon != null ? `<tr><td class="l">moon</td><td>${signed(r.ev_moon)}</td><td></td></tr>` : ""}
+      <td style="width:110px"><div class="bar"><div style="width:${Math.max(0, 100 * x.ev / top)}%"></div></div></td><td>${signed(x.net)}</td></tr>`).join("")}
+    ${r.ev_moon != null ? `<tr><td class="l">moon</td><td>${signed(r.ev_moon)}</td><td></td><td>${signed(r.net_moon)}</td></tr>` : ""}
     </table>`;
 });
 

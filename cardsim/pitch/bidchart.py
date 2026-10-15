@@ -10,8 +10,17 @@ from the bidding team's points (making a bid scores the points taken, being set 
 the bid), plus a moon bid where the rules have one. The chart gives the highest bid with
 expected points >= 0, by honors (rows) and number of small trumps (columns).
 
+The .csv also has each bid's net expected points (net2, net3, ..., net_moon): the bidding
+team's score change minus what everyone else scores on the hand (opp, the average of
+which is also given), i.e. how far the bid moves you against the field. Points nobody
+scores (a tie for Game) count for neither side. The play does not depend on the bid, so
+net and ev differ by the same opp for every bid and rank the bids alike; they differ
+only on whether bidding beats passing, where net >= 0 is the stricter (too strict:
+passing also lets the opponents bid) test.
+
     .venv/Scripts/python -m cardsim.pitch.bidchart --preset ten_point -p 4
     .venv/Scripts/python -m cardsim.pitch.bidchart --cluster http://localhost:8700   # all presets, on the cluster
+    .venv/Scripts/python -m cardsim.pitch.bidchart --cluster http://localhost:8700 --hands 4000000 --rebuild
 """
 import argparse
 import os
@@ -76,19 +85,26 @@ def aggregate(rules, game, out):
     expected points of every bid and the highest profitable bid."""
     labels, small = features(out[:, fast.S_DEALT], out[:, fast.S_TRUMP], rules, game.tab)
     own = out[:, fast.S_OWN]
+    opp = out[:, fast.S_OPP]
     moon_ok = (out[:, fast.S_SWEEP] == 1) & (own == rules.points_total)
-    df = pd.DataFrame({"honors": labels, "small": small, "own": own, "moon": moon_ok})
+    df = pd.DataFrame({"honors": labels, "small": small, "own": own, "opp": opp, "moon": moon_ok})
     bids = list(range(rules.min_bid, rules.max_bid + 1))
     for k in bids:
         df[f"ev{k}"] = np.where(own >= k, own, -k)
+        df[f"net{k}"] = df[f"ev{k}"] - opp
+    if rules.moon_bid:
+        df["net_moon"] = np.where(moon_ok, rules.moon_value, -rules.moon_value) - opp
+    nets = [f"net{k}" for k in bids] + (["net_moon"] if rules.moon_bid else [])
     g = df.groupby(["honors", "small"]).agg(
-        hands=("own", "size"), avg=("own", "mean"), p_moon=("moon", "mean"),
-        **{f"ev{k}": (f"ev{k}", "mean") for k in bids}).reset_index()
+        hands=("own", "size"), avg=("own", "mean"), opp=("opp", "mean"), p_moon=("moon", "mean"),
+        **{f"ev{k}": (f"ev{k}", "mean") for k in bids}, **{c: (c, "mean") for c in nets}).reset_index()
     ev = g[[f"ev{k}" for k in bids]].to_numpy()
     ok = ev >= 0
     g["max_bid"] = np.where(ok.any(axis=1), np.array(bids)[np.where(ok, np.arange(len(bids)), -1).max(axis=1)], 0)
     if rules.moon_bid:
         g["ev_moon"] = rules.moon_value * (2 * g.p_moon - 1)
+    first = ["honors", "small", "hands", "avg", "opp", "p_moon"]
+    g = g[first + [f"ev{k}" for k in bids] + ["max_bid"] + (["ev_moon"] if rules.moon_bid else []) + nets]
     return g[g.hands >= 1]
 
 
@@ -100,18 +116,27 @@ def write_chart(rules, nplayers, g, nhands, search):
     return base + ".md"
 
 
-def run_cluster(url, jobs, search, seed, poll=60):
+def run_cluster(url, jobs, search, seed, poll=60, rebuild=False):
     """Submit one survey study per (preset, players, hands) to the coordinator (or reuse
-    an existing one with the same settings and code), wait, fetch, and write the charts."""
+    an existing one with the same settings and code), wait, fetch, and write the charts.
+    rebuild: submit nothing; rewrite the charts from finished studies with the same
+    settings, whatever code they ran on (for changes to the charts, not to the play)."""
     import io
     from cardsim.dist.client import token_from_env
     from cardsim.dist.tasks import code_version, study_params
     from cardsim.dist.worker import Client
     c = Client(url, token_from_env())
-    existing = {(s["name"], s["params"].get("code")): s["id"] for s in c.get("/studies")}
+    studies = c.get("/studies")
+    existing = {(s["name"], s["params"].get("code")): s["id"] for s in studies}
+    finished = {s["name"]: s["id"] for s in studies if s["complete"]}
     ids = {}
     for preset, n, nh in jobs:
         name = f"bidchart {preset} {n}p {nh} deals search {search} seed {seed}"
+        if rebuild:
+            if name not in finished:
+                raise SystemExit(f"no finished study named {name!r} to rebuild from")
+            ids[(preset, n, nh)] = finished[name]
+            continue
         sid = existing.get((name, code_version()))
         if sid is None:
             params = study_params("survey", preset, n, search, seed, hands=nh)
@@ -180,6 +205,8 @@ def main():
     ap.add_argument("--search", type=int, default=16)
     ap.add_argument("--seed", type=int, default=2027)
     ap.add_argument("--cluster", help="coordinator URL: run the surveys on the cluster instead of this GPU")
+    ap.add_argument("--rebuild", action="store_true",
+                    help="with --cluster: only rewrite the charts from the finished surveys (no new deals)")
     a = ap.parse_args()
     warnings.filterwarnings("ignore")
     os.makedirs(OUT, exist_ok=True)
@@ -192,7 +219,7 @@ def main():
                 continue
             jobs.append((preset, n, a.hands if n == 4 else a.hands // 2))
     if a.cluster:
-        run_cluster(a.cluster, jobs, a.search, a.seed)
+        run_cluster(a.cluster, jobs, a.search, a.seed, rebuild=a.rebuild)
         return
     for preset, n, nh in jobs:
         rules, game, g, secs, nh = build(preset, n, nh, a.search, a.seed)
@@ -206,7 +233,8 @@ def write_index():
              "Each chart gives the highest bid worth making (expected points >= 0) by the honors you hold in "
              "your trump suit and how many other small trumps you have. Built by "
              "`python -m cardsim.pitch.bidchart` from large GPU surveys with search players; the `.csv` next "
-             "to each chart has the expected points of every bid for every group.", "",
+             "to each chart has the expected points of every bid for every group, and the net expected points "
+             "(score change minus the opponents' points on the hand).", "",
              "| Rules | 4-handed | 6-handed | What changes |", "|---|---|---|---|"]
     for name in PRESETS:
         r = PitchRules.preset(name)

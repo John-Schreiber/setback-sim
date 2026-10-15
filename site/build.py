@@ -7,7 +7,8 @@ looked up without downloading them. Output goes to site/_build/ (index.html and 
   presets.parquet    one row per house-rule preset (bids, points, a one-line summary)
   charts.parquet     per preset, players, trump honors and small trumps: hands, average
                      points, highest bid with expected points >= 0 (charts/*.csv)
-  chart_ev.parquet   the same groups, one row per bid: expected points of that bid
+  chart_ev.parquet   the same groups, one row per bid: expected points of that bid (ev) and
+                     net of the opponents' points on the hand (net)
   condensed.parquet  4-point Setback, from the every-hand tables (condensed_*.csv)
   allhands.parquet.zip
                      every distinct 6-card hand, 4-point Setback, as bidder. Built from the
@@ -71,12 +72,14 @@ def charts():
         df.insert(0, "players", int(n))
         df.insert(0, "preset", preset)
         evs = [c for c in df.columns if re.fullmatch(r"ev\d+", c)]
-        keep = ["preset", "players", "honors", "small", "hands", "avg", "p_moon", "max_bid"]
+        keep = ["preset", "players", "honors", "small", "hands", "avg", "opp", "p_moon", "max_bid"]
         w = df[keep].copy()
         w["ev_moon"] = df["ev_moon"] if "ev_moon" in df else None
+        w["net_moon"] = df["net_moon"] if "net_moon" in df else None
         wide.append(w)
-        lg = df.melt(id_vars=["preset", "players", "honors", "small", "hands"], value_vars=evs,
-                     var_name="bid", value_name="ev")
+        ids = ["preset", "players", "honors", "small", "hands"]
+        lg = df.melt(id_vars=ids, value_vars=evs, var_name="bid", value_name="ev")
+        lg["net"] = df.melt(id_vars=ids, value_vars=["net" + c[2:] for c in evs])["value"]
         lg["bid"] = lg["bid"].str[2:].astype(int)
         long.append(lg)
     wide = pd.concat(wide, ignore_index=True)

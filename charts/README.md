@@ -1,6 +1,6 @@
 # Bidding charts by house rules
 
-Each chart gives the highest bid worth making (expected points >= 0) by the honors you hold in your trump suit and how many other small trumps you have. Built by `python -m cardsim.pitch.bidchart` from large GPU surveys with search players; the `.csv` next to each chart has the expected points of every bid for every group.
+Each chart gives the highest bid worth making (expected points >= 0) by the honors you hold in your trump suit and how many other small trumps you have. Built by `python -m cardsim.pitch.bidchart` from large GPU surveys with search players; the `.csv` next to each chart has the expected points of every bid for every group, and the net expected points (score change minus the opponents' points on the hand).
 
 | Rules | 4-handed | 6-handed | What changes |
 |---|---|---|---|
