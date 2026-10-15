@@ -10,7 +10,16 @@ Results are saved in chunks under allhands_<P>p_d<deals>_s<search>/ so an
 interrupted run resumes where it stopped (rerun the same command); when every
 chunk is done they are merged into allhands_<P>p_d<deals>_s<search>.csv.gz.
 
+With --cluster the table is played by the generalized engine (cardsim.pitch) on the
+cluster instead: one `allhands` study (reused if it already exists with the same
+settings and code), fetched when complete. Those tables add the opponents' points
+(opp: every other team's together), each bid's net expected points (net2/3/4: the
+bid's expected points minus opp) and p_all, the chance of taking all four points and
+every trick (what an 11 or moon bid needs). The per-deal points of every team are
+kept in allhands_<P>p_d<deals>_s<search>_raw.npz.
+
     .venv/Scripts/python allhands.py -p 4 --deals 256
+    .venv/Scripts/python allhands.py -p 6 --deals 112 --search 16 --cluster http://localhost:8700
 """
 import argparse
 import glob
@@ -113,7 +122,11 @@ def main():
     ap.add_argument("--chunk", type=int, default=2048, help="hands per saved chunk")
     ap.add_argument("--limit", type=int, default=0, help="only the first N hand classes (testing)")
     ap.add_argument("--seed", type=int, default=20261013)
+    ap.add_argument("--cluster", help="coordinator URL: play the table on the cluster (generalized engine)")
     a = ap.parse_args()
+    if a.cluster:
+        from_cluster(a.cluster, a.players, a.deals, a.search, a.seed)
+        return
 
     team = np.array(sb.make_teams(a.players, 2), np.int64)
     nteams = int(team.max()) + 1
@@ -164,6 +177,61 @@ def main():
     df.insert(2, "weight", counts)  # how many real hands this class stands for
     df.insert(3, "deals", a.deals)
     fn = os.path.join(HERE, f"{tag}{f'_first{a.limit}' if a.limit else ''}.csv.gz")
+    df.to_csv(fn, index=False, float_format="%.4f")
+    print(f"wrote {fn}  ({len(df):,} hands)", flush=True)
+
+
+
+def table_stats(pts, sweep):
+    """Per-hand columns from per-deal points (classes, deals, teams; the bidder's team
+    first) and sweep flags (classes, deals)."""
+    own = pts[:, :, 0].astype(np.int64)
+    opp = pts[:, :, 1:].astype(np.int64).sum(axis=2)
+    stats = {"mean": own.mean(axis=1)}
+    for k in (2, 3, 4):
+        ev = np.where(own >= k, own, -k)
+        stats[f"p{k}"] = (own >= k).mean(axis=1)
+        stats[f"ev{k}"] = ev.mean(axis=1)
+    stats["opp"] = opp.mean(axis=1)
+    for k in (2, 3, 4):
+        stats[f"net{k}"] = stats[f"ev{k}"] - stats["opp"]
+    stats["p_all"] = ((sweep == 1) & (own == 4)).mean(axis=1)
+    return stats
+
+
+def from_cluster(url, players, deals, search, seed, poll=60):
+    import io
+    from cardsim.dist.client import token_from_env
+    from cardsim.dist.tasks import code_version, study_params
+    from cardsim.dist.worker import Client
+    c = Client(url, token_from_env())
+    name = f"allhands setback4 {players}p d{deals} s{search} seed {seed}"
+    sid = {(s["name"], s["params"].get("code")): s["id"] for s in c.get("/studies")}.get((name, code_version()))
+    if sid is None:
+        params = study_params("allhands", "setback4", players, search, seed, deals=deals)
+        sid = c.post("/studies", {"kind": "allhands", "params": params, "engine": "gpu" if search else "any",
+                                  "name": name})["id"]
+    print(f"{name}: study {sid} on {url}", flush=True)
+    t0 = time.time()
+    while True:
+        s = next(s for s in c.get("/studies") if s["id"] == sid)
+        if s["complete"]:
+            break
+        print(f"  {s['done']:,}/{s['total']:,} hands ({100 * s['done'] / s['total']:.1f}%) after "
+              f"{(time.time() - t0) / 60:.1f} min", flush=True)
+        time.sleep(poll)
+    z = np.load(io.BytesIO(c.get(f"/studies/{sid}/result")))
+    pts, sweep, trumps = z["pts"], z["sweep"], z["trump"]
+    keys, counts = hand_classes()
+    assert len(pts) == len(keys), (len(pts), len(keys))
+    tag = f"allhands_{players}p_d{deals}_s{search}"
+    np.savez_compressed(os.path.join(HERE, f"{tag}_raw.npz"), pts=pts, sweep=sweep, trump=trumps)
+    df = pd.DataFrame({k: v.astype(np.float32) for k, v in table_stats(pts, sweep).items()})
+    df.insert(0, "hand", [hand_str(int(h)) for h in keys])
+    df.insert(1, "trump", ["SHDC"[t] for t in trumps])
+    df.insert(2, "weight", counts)
+    df.insert(3, "deals", deals)
+    fn = os.path.join(HERE, f"{tag}.csv.gz")
     df.to_csv(fn, index=False, float_format="%.4f")
     print(f"wrote {fn}  ({len(df):,} hands)", flush=True)
 

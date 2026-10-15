@@ -316,12 +316,13 @@ async function lookup() {
   try { cards = parseHand($("cards").value); } catch (e) { out.innerHTML = `<p class="err">${esc(e.message)}</p>`; return; }
   const { key, order } = canonical(cards);
   const players = +$("hplayers").value, search = +$("hsearch").value;
-  const rows = await q(`SELECT trump, deals, mean, p2, ev2, p3, ev3, p4, ev4 FROM allhands
+  const rows = await q(`SELECT * FROM allhands
                         WHERE players = ${players} AND search = ${search} AND key = ${key}`);
   if (!rows.length) { out.innerHTML = `<p class="err">Hand not found.</p>`; return; }
   const r = rows[0];
   const trump = order[SUITS.indexOf(r.trump)];
-  const bids = [2, 3, 4].map((b) => ({ b, p: r[`p${b}`], ev: r[`ev${b}`] }));
+  const bids = [2, 3, 4].map((b) => ({ b, p: r[`p${b}`], ev: r[`ev${b}`], net: r[`net${b}`] }));
+  const hasNet = r.opp != null;
   const ok = bids.filter((x) => x.ev >= 0);
   const ceiling = ok.length ? ok[ok.length - 1].b : 0;
   const shown = cards.slice().sort((a, b) => a[1] - b[1] || b[0] - a[0])
@@ -329,11 +330,14 @@ async function lookup() {
   out.innerHTML = `
     <div class="split"><div>
       <p>${esc(shown)} · ${players}-handed · trump <b>${SYM[trump]}</b> · ${num(r.deals)} deals</p>
-      <table><tr><th class="l">bid</th><th>makes it</th><th>expected points</th></tr>
-      ${bids.map((x) => `<tr><td class="l">${x.b}</td><td>${(100 * x.p).toFixed(0)}%</td><td>${signed(x.ev)}</td></tr>`).join("")}
+      <table><tr><th class="l">bid</th><th>makes it</th><th>expected points</th>${hasNet ? "<th>net of opp.</th>" : ""}</tr>
+      ${bids.map((x) => `<tr><td class="l">${x.b}</td><td>${(100 * x.p).toFixed(0)}%</td><td>${signed(x.ev)}</td>${hasNet ? `<td>${signed(x.net)}</td>` : ""}</tr>`).join("")}
+      ${hasNet ? `<tr><td class="l">all 4 + every trick</td><td>${(100 * r.p_all).toFixed(1)}%</td><td></td><td></td></tr>` : ""}
       </table>
-      <p class="muted" style="margin-top:10px">Average ${r.mean.toFixed(2)} of 4 points taken. "Makes it" = takes at least
-        the bid; expected points count the points taken when made and minus the bid when set.</p>
+      <p class="muted" style="margin-top:10px">Average ${r.mean.toFixed(2)} of 4 points taken${hasNet ? `; the opponents ${r.opp.toFixed(2)}` : ""}.
+        "Makes it" = takes at least the bid; expected points count the points taken when made and minus the bid
+        when set${hasNet ? "; net subtracts what the opponents score on the hand" : ""}.${hasNet ? ` "All 4 + every trick" is
+        what an 11 or moon bid needs.` : ""}</p>
     </div><div class="card">
       <div class="muted">Go up to</div><div class="big">${ceiling || "pass"}</div>
       <p class="muted">${ceiling ? "The highest bid with expected points ≥ 0: how far to go to win the auction." : "No bid has expected points ≥ 0."}</p>

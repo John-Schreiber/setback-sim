@@ -88,7 +88,7 @@ uv run python -m cardsim.dist.client fetch STUDY_ID -o ten_point_4p.npz
 | Kind | Items | Result |
 |---|---|---|
 | `survey` | random deals | `rows`: trump, hand, bidding team's points, others' points, dealt hand, swept all tricks |
-| `allhands` | the 962,988 distinct 6-card hands (52-card, 6-card presets) | `own`: bidding team's points, per hand and deal |
+| `allhands` | the 962,988 distinct 6-card hands (52-card, 6-card presets) | `pts`: every team's points (bidder's team first) and `sweep`: bidder's team took every trick, per hand and deal; `trump` per hand |
 
 Search studies default to GPU workers only (`--engine gpu`); rule-based studies run on any
 worker. The CPU and GPU engines play bit-identical games, search included, so submitting a

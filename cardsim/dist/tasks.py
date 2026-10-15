@@ -11,7 +11,9 @@ Kinds:
             -> rows: fast.survey columns (trump, hand, own, opp, dealt, sweep)
   allhands  params: preset, players, deals, search, seed    items: hand classes
             (optional limit: only the first `limit` classes)
-            -> own: bidding team's points, shape (classes, deals), int8
+            -> pts: every team's points (the bidder's team first), shape (classes, deals,
+               teams), int8; sweep: 1 where the bidder's team took every trick, shape
+               (classes, deals), int8; trump: the suit each class names, shape (classes,)
 """
 import hashlib
 import os
@@ -88,11 +90,16 @@ def run(kind, params, start, end, device):
         rules = g.rules_bt[g.team[0]]
         if device == "gpu":
             from cardsim.pitch import gpu
-            sc = gpu.play_batch(dealt, tr, lo, g.team, rules, search, g.tab, g.gf, seed=seed,
-                                game_offset=start * deals)
+            sc, won = gpu.play_batch(dealt, tr, lo, g.team, rules, search, g.tab, g.gf, seed=seed,
+                                     game_offset=start * deals, return_won=True)
         else:
-            sc = fast.play_many(dealt, tr, g.team, g.nteams, rules, search, g.tab, g.gf, seed, start * deals)
-        return {"own": sc[:, g.team[0]].reshape(count, deals).astype(np.int8)}
+            sc, won = fast.play_many(dealt, tr, g.team, g.nteams, rules, search, g.tab, g.gf, seed,
+                                     start * deals)
+        bt = g.team[0]
+        order = [bt] + [k for k in range(g.nteams) if k != bt]
+        sweep = (np.delete(won, bt, axis=1) == 0).all(axis=1)
+        return {"pts": sc[:, order].reshape(count, deals, g.nteams).astype(np.int8),
+                "sweep": sweep.reshape(count, deals).astype(np.int8), "trump": trumps.astype(np.int8)}
     raise ValueError(f"unknown kind {kind!r}")
 
 

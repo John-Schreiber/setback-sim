@@ -463,8 +463,11 @@ def deal_with_hand_batch(hands_in, trumps, ids, deals, nplayers, deal_size, hand
 @njit(parallel=True, cache=True)
 def play_many(hands, trumps, team, nteams, rules, search, tab, gf, seed, offset):
     """Play every dealt game (CPU). Game i's search draws from (seed, offset + i), as
-    gpu.play_batch(seed=seed, game_offset=offset) does. Returns points per team."""
+    gpu.play_batch(seed=seed, game_offset=offset) does. Returns points per team and the
+    cards each team captured."""
     out = np.zeros((hands.shape[0], nteams), np.int64)
+    won = np.zeros((hands.shape[0], nteams), np.int64)
     for i in prange(hands.shape[0]):
-        out[i] = play_game(hands[i], 0, trumps[i], team, nteams, True, rules, search, tab, gf, seed, offset + i)
-    return out
+        out[i], won[i], _ = play_game_won(hands[i], 0, trumps[i], team, nteams, True, rules, search, tab, gf,
+                                          seed, offset + i)
+    return out, won

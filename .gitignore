@@ -8,6 +8,7 @@ __pycache__/
 # large generated data: published as GitHub Release assets instead (see README)
 allhands_*/
 allhands_*.csv.gz
+allhands_*.npz
 sweep_*.npz
 trumpdata_*.npz
 trump_theta_*.npy
