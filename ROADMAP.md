@@ -64,7 +64,9 @@ Built: `cardsim/dist` and `docker/`, described in [docs/distributed.md](docs/dis
   natively, which on Windows gives about 50% more CPU throughput than Docker Desktop. The
   Linux box runs a GPU and a CPU worker in Docker; the Windows machine runs both natively.
   With `--auto-update`, a worker fetches the exact code a study was submitted with from
-  GitHub and restarts on it.
+  GitHub and restarts on it. Workers run slices in 20-second pieces and, when stopped (or
+  warned of a spot interruption with `--spot`), hand back the unfinished part; GPU workers
+  tune the play-out kernel for their card. [docs/aws.md](docs/aws.md) covers AWS spot workers.
 
 A study split across machines, devices and CPU/GPU matches a single run exactly
 (`tests/test_dist.py`), and the every-hand tables have been built across the cluster.

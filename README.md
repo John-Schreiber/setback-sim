@@ -56,8 +56,9 @@ leads first and that card sets trump; you may always trump in. 4-handed is two t
 - **Players.** Rule-based players follow hand-written rules, tuned by finding where search
   disagreed with them and testing each fix head-to-head. Search players try each legal card
   against many guesses of the hidden cards and keep the best. With 16 guesses per decision,
-  4-handed, they play about 240,000 games per second on an RTX 3070, 22,000 on a GTX 1060 and
-  4,600 on a Ryzen 5600X's CPU.
+  4-handed, they play about 225,000 games per second on an RTX 3070, 22,000 on a GTX 1060 and
+  4,500 on a Ryzen 5600X's CPU. Each GPU tunes the play-out kernel (85-90% of the time) for
+  itself: on the 3070 that is worth about 16%.
 - **Every hand.** Up to suit relabeling, the 20,358,520 possible 6-card hands reduce to
   962,988. `allhands.py` plays each one as bidder against hundreds of random deals and saves
   the per-hand results: the chance of making and expected points of each bid and, for tables
@@ -81,7 +82,8 @@ uv run python tests/test_scoring.py && uv run python tests/test_dist.py
 uv run python tests/test_update.py            # --offline to skip the GitHub part
 ```
 
-To spread big studies over several GPU machines, see [docs/distributed.md](docs/distributed.md).
+To spread big studies over several GPU machines, see [docs/distributed.md](docs/distributed.md);
+for AWS spot GPUs, [docs/aws.md](docs/aws.md).
 
 | Script | What it does |
 |---|---|
