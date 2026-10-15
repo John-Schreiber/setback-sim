@@ -65,10 +65,16 @@ class Store:
         return sid
 
     def studies(self):
+        # every use of the shared connection holds the lock: FastAPI runs these sync
+        # endpoints on a thread pool, and concurrent reads break sqlite3
         out = []
-        for s in self.db.execute("select * from studies order by created").fetchall():
-            c = {r["state"]: r["n"] for r in self.db.execute(
+        with self.lock:
+            rows = self.db.execute("select * from studies order by created").fetchall()
+            counts = {s["id"]: {r["state"]: r["n"] for r in self.db.execute(
                 "select state, sum(end - start) as n from jobs where study=? group by state", (s["id"],))}
+                for s in rows}
+        for s in rows:
+            c = counts[s["id"]]
             done = c.get("done", 0)
             out.append({"id": s["id"], "name": s["name"], "kind": s["kind"], "engine": s["engine"],
                         "params": json.loads(s["params"]), "total": s["total"], "done": done,
@@ -140,15 +146,17 @@ class Store:
                             (error[:2000], jid, worker))
 
     def slices(self, sid):
-        return [dict(r) for r in self.db.execute(
-            "select start, end, state, worker, device, seconds, attempts from jobs where study=? order by start",
-            (sid,)).fetchall()]
+        with self.lock:
+            return [dict(r) for r in self.db.execute(
+                "select start, end, state, worker, device, seconds, attempts from jobs where study=? order by start",
+                (sid,)).fetchall()]
 
     def result(self, sid):
-        s = self.db.execute("select * from studies where id=?", (sid,)).fetchone()
+        with self.lock:
+            s = self.db.execute("select * from studies where id=?", (sid,)).fetchone()
+            jobs = self.db.execute("select start, end from jobs where study=? and state='done'", (sid,)).fetchall()
         if s is None:
             raise KeyError(sid)
-        jobs = self.db.execute("select start, end from jobs where study=? and state='done'", (sid,)).fetchall()
         covered = sum(j["end"] - j["start"] for j in jobs)
         if covered != s["total"]:
             raise ValueError(f"study {sid} is {covered}/{s['total']} done")
