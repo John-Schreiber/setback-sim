@@ -53,7 +53,8 @@ study (Spades: how many tricks to bid; Hearts: which cards to pass).
 
 Done: `cardsim/dist` and `docker/`, described in [docs/distributed.md](docs/distributed.md).
 Workers run in Docker (CUDA 13, or CUDA 12 for older drivers) or natively on Windows; a study
-split across CPU and GPU workers matches a single run exactly.
+split across CPU and GPU workers matches a single run exactly. With `--auto-update`, workers
+fetch the exact code a study was submitted with from GitHub and restart on it.
 
 - **Coordinator:** a small HTTP service with a job queue (SQLite). It splits a study into jobs of
   **5–10 minutes** each, hands them out, stores results, and re-issues jobs whose worker

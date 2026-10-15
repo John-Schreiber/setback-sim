@@ -10,6 +10,8 @@ trump-choice weights it was submitted with.
 
 If a worker dies, its slice goes back in the queue after 2 minutes without a heartbeat.
 If the coordinator restarts, its queue and finished slices are on disk (`dist-data/`).
+Workers started with auto-update follow code changes on their own (see
+[Updating the code](#updating-the-code)): push, then submit.
 
 ## 1. Coordinator
 
@@ -39,9 +41,12 @@ Then:
 ```bash
 git clone https://github.com/John-Schreiber/setback-sim && cd setback-sim
 export COORDINATOR_URL=http://192.168.1.10:8700 COORDINATOR_TOKEN=pick-a-long-random-string
+export WORKER_AUTO_UPDATE=1    # optional: follow code changes from GitHub (see below)
 docker compose -f docker/compose.worker.yml up -d --build
 docker compose -f docker/compose.worker.yml logs -f
 ```
+
+These settings can also go in `docker/.env` (git-ignored) instead of being exported.
 
 The image uses CUDA 13 (driver 580 or newer). For older drivers, such as on Pascal cards
 (GTX 10xx), build it with CUDA 12 instead: `GPU_EXTRA=gpu-cu12 docker compose ...`.
@@ -70,8 +75,11 @@ A worker can also run straight from a checkout, which avoids any container overh
 ```bash
 uv sync --extra gpu        # --extra gpu-cu12 for older drivers; plain `uv sync` for CPU only
 export COORDINATOR_URL=http://192.168.1.10:8700 COORDINATOR_TOKEN=pick-a-long-random-string
-uv run python -m cardsim.dist.worker --device auto --name my-gpu    # or --device cpu
+uv run python -m cardsim.dist.worker --device auto --name my-gpu --auto-update    # or --device cpu
 ```
+
+On Windows, `scripts/start-native-workers.ps1 -AutoUpdate` starts a GPU and a CPU worker
+hidden in the background (logs in `logs/`); `scripts/stop-native-workers.ps1` stops them.
 
 ## 3. Submitting studies and getting results
 
@@ -84,6 +92,18 @@ uv run python -m cardsim.dist.client submit allhands --preset setback4 -p 4 --de
 uv run python -m cardsim.dist.client status
 uv run python -m cardsim.dist.client fetch STUDY_ID -o ten_point_4p.npz
 ```
+
+The study scripts can also submit, wait and write their outputs in one go; each reuses a
+finished study with the same settings and code instead of running it again:
+
+```bash
+uv run python -m cardsim.pitch.bidchart --cluster $COORDINATOR_URL --hands 4000000   # every preset's chart
+uv run python -m cardsim.pitch.bidchart --cluster $COORDINATOR_URL --hands 4000000 --rebuild  # charts only, no new deals
+uv run python allhands.py -p 4 --deals 224 --search 16 --cluster $COORDINATOR_URL  # an every-hand table
+```
+
+`--rebuild` rewrites the charts from finished surveys whatever code they ran on: for changes
+to how charts are worked out, not to how games are played.
 
 | Kind | Items | Result |
 |---|---|---|

@@ -5,16 +5,18 @@ playing out **every possible 6-card hand** with computer players that look ahead
 GPU, and turning the results into bidding charts.
 
 **Browse the results:** [john-schreiber.github.io/setback-sim](https://john-schreiber.github.io/setback-sim/)
-has every chart, a lookup for any 6-card hand, and a SQL console over all the data, running in
-your browser (Parquet files queried by DuckDB-WASM).
+has every chart (with an explanation of each set of house rules), a lookup for any 6-card
+hand, and a SQL console over all the data, running in your browser (Parquet files queried by
+DuckDB-WASM).
 
 **Just want the charts?** [`bidchart_condensed.md`](bidchart_condensed.md) has a compact
 bidding chart for 4-handed and 6-handed play: for each trump holding, how many small trumps you
 need to bid 2, 3 or 4. [`charts/`](charts/README.md) has a chart for every house-rule preset
 (6-point, 7-point, 10-point, Roadhouse, Draw Pitch, Nine-Five and more), each built from 4
 million deals (2 million 6-handed). A chart cell is the *highest* bid that still has non-negative expected points:
-how far to go in an auction, not necessarily the best opening bid (each chart's `.csv` has the
-expected points of every bid).
+how far to go in an auction, not necessarily the best opening bid. Each chart's `.csv` has the
+expected points of every bid, and also their **net** expected points: your score change minus
+what the opponents score on the hand.
 
 ## What it found (4-handed unless noted)
 
@@ -29,6 +31,13 @@ expected points of every bid).
 - **11-bids** (all 4 points and every trick) pay off at about a 50% chance of sweeping or
   better: essentially six trumps with the Jack, or five trumps with the A, K and J plus a side
   Ace.
+- **A higher bid is never worth more on the same hand.** The play doesn't depend on the bid, so
+  a higher bid scores the same when made and only adds ways to be set; its only use is winning
+  the auction.
+- **Counting the opponents' points is much stricter.** A bid "pays" (expected points >= 0) on
+  about 99% of 4-handed hands, but gains on the opponents (net >= 0) on only about 65% (6-handed:
+  71% and 35%). Passing isn't free either, since someone else then bids, so the right bidding
+  line lies between the two; the charts still use the first.
 
 The rules assumed: High, Low (scored by whoever captures it), Jack and Game; bids 2–4; the bidder
 leads first and that card sets trump; you may always trump in. 4-handed is two teams of two,
@@ -51,7 +60,10 @@ leads first and that card sets trump; you may always trump in. 4-handed is two t
   4,600 on a Ryzen 5600X's CPU.
 - **Every hand.** Up to suit relabeling, the 20,358,520 possible 6-card hands reduce to
   962,988. `allhands.py` plays each one as bidder against hundreds of random deals and saves
-  the per-hand results. `condense.py` turns those into the condensed charts.
+  the per-hand results: the chance of making and expected points of each bid and, for tables
+  built on the cluster (`--cluster`), the opponents' points, each bid's net expected points and
+  the chance of taking all four points and every trick. `condense.py` turns those into the
+  condensed charts.
 
 ## Running it
 
@@ -65,6 +77,8 @@ uv run python -m cardsim.pitch.bidchart --preset ten_point -p 4    # one preset'
 uv run python -m cardsim.pitch.game --preset roadhouse --pairs cheap:table   # whole games
 uv run python tests/test_pitch_core.py && uv run python tests/test_pitch_variants.py
 uv run python tests/test_pitch_game.py && uv run python tests/test_pitch_gpu.py
+uv run python tests/test_scoring.py && uv run python tests/test_dist.py
+uv run python tests/test_update.py            # --offline to skip the GitHub part
 ```
 
 To spread big studies over several GPU machines, see [docs/distributed.md](docs/distributed.md).
@@ -72,7 +86,7 @@ To spread big studies over several GPU machines, see [docs/distributed.md](docs/
 | Script | What it does |
 |---|---|
 | `setback.py` | command line: simulate one hand, bid charts, table lookup; Python reference engine |
-| `allhands.py` | the every-hand tables (hours with search players; minutes with rule-based ones) |
+| `allhands.py` | the every-hand tables, on this GPU or the cluster (`--cluster URL`, which adds the opponents' points, net expected points and sweep chances) |
 | `auction.py` | whole games with an auction: bidding strategies, stealing, dealer's privilege, 11-bids |
 | `experiments.py`, `fit_trump.py`, `sweep.py` | targeted studies: weakest profitable bids, bare Ace vs two trumps, trump-choice weights, sweep chances |
 | `condense.py` | condensed bid charts from the tables |
@@ -82,8 +96,11 @@ To spread big studies over several GPU machines, see [docs/distributed.md](docs/
 | `cardsim/dist/` | coordinator and workers for spreading studies over several machines |
 | `site/` | the stats site: `build.py` writes the Parquet data, a GitHub Actions workflow publishes it |
 
-The every-hand tables (about 15 MB each) are published as
-[release assets](../../releases) rather than kept in the repo.
+The every-hand tables (about 25 MB each), the site's `allhands.parquet` and the raw per-deal
+results are published as [release assets](../../releases) rather than kept in the repo; v0.2
+has the current tables. The site rebuilds on every push to its files; after publishing a
+release, run it by hand on main (`gh workflow run pages.yml --ref main`) so it picks up the new
+table.
 
 ## Roadmap
 
