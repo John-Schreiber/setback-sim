@@ -1,14 +1,15 @@
 # Stats site: build the Parquet data and page (site/build.py) and publish to GitHub Pages.
 # The every-hand table comes prebuilt from the latest release (allhands.parquet), so the
-# build only needs pandas and pyarrow and takes seconds.
+# build only needs pandas and pyarrow and takes seconds. After publishing a release, run
+# this workflow by hand on main (gh workflow run pages.yml --ref main): the github-pages
+# environment only deploys from main, so a release-triggered run (on the tag) is rejected.
 name: Stats site
 
 on:
   push:
     branches: [main]
-    paths: ["site/**", "charts/**", "condensed_*.csv", "cardsim/pitch/rules.py", ".github/workflows/pages.yml"]
-  release:
-    types: [published]
+    paths: ["site/**", "charts/**", "condensed_*.csv", "cardsim/pitch/rules.py", "cardsim/pitch/notes.py",
+            ".github/workflows/pages.yml"]
   workflow_dispatch:
 
 permissions:
