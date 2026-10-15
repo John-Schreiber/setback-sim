@@ -69,6 +69,10 @@
   @media (max-width: 820px) { .split > .card { position: static; max-height: none; } }
   .card table { width: 100%; margin: 8px 0 6px; font-variant-numeric: tabular-nums; }
   .card .muted { font-size: .85rem; }
+  .notes { max-width: 75ch; margin-bottom: 6px; }
+  details.common { margin: -4px 0 14px; max-width: 75ch; }
+  details.common summary { cursor: pointer; }
+  details.common p { margin: 6px 0 0; }
   .big { font-size: 2rem; font-weight: 700; line-height: 1.1; }
   #status { font-size: .85rem; color: var(--muted); margin-top: 8px; min-height: 1.4em; }
   footer { margin-top: 28px; color: var(--muted); font-size: .85rem; }
@@ -95,7 +99,9 @@
       <label>House rules <select id="preset"></select></label>
       <label>Players <select id="players"><option value="4">4 (two teams)</option><option value="6">6 (three teams)</option></select></label>
     </div>
+    <p class="notes" id="notes"></p>
     <p class="muted" id="summary"></p>
+    <details class="muted common"><summary>Rules every variant shares</summary><p><!--COMMON--></p></details>
     <div class="split">
       <div>
         <p class="muted">Each cell: the highest bid with expected points ≥ 0 for that trump holding, so how far
@@ -207,7 +213,8 @@ function cmpKeys(a, b) {
 const level = (bid, p) => (bid ? 1 + Math.round(4 * (bid - p.min_bid) / Math.max(1, p.max_bid - p.min_bid)) : 0);
 async function drawChart() {
   const preset = $("preset").value, players = +$("players").value, p = presets[preset];
-  $("summary").textContent = p.summary;
+  $("notes").textContent = p.notes;
+  $("summary").textContent = "In short: " + p.summary;
   const where = `preset = ${sqlStr(preset)} AND players = ${players}`;
   const [rows, evRows] = await Promise.all([
     q(`SELECT honors, small, hands, avg, opp, max_bid, ev_moon, net_moon FROM charts WHERE ${where}`),

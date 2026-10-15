@@ -32,6 +32,7 @@ import pandas as pd
 
 from cardsim.cards import BIG_JOKER, COLOR_MATE, LITTLE_JOKER, card
 from cardsim.pitch import PRESETS, PitchRules
+from cardsim.pitch.notes import COMMON, NOTES
 from cardsim.pitch.rules import describe
 from cardsim.pitch import fast, gpu
 
@@ -243,6 +244,9 @@ def write_index():
             fn = os.path.join(OUT, f"{name}_{n}p.md")
             links.append(f"[chart]({name}_{n}p.md)" if os.path.exists(fn) else "-")
         lines.append(f"| **{name}** | {links[0]} | {links[1]} | {describe(r)} |")
+    lines += ["", "## The variants", "", COMMON]
+    for name in PRESETS:
+        lines += ["", f"**{name}**: {NOTES[name]}"]
     with open(os.path.join(OUT, "README.md"), "w", encoding="utf-8") as f:
         f.write("\n".join(lines) + "\n")
 

@@ -4,7 +4,7 @@ The page (site/index.html) runs DuckDB-WASM, which reads only the parts of each 
 file a query needs (HTTP range requests), so the million-row every-hand tables can be
 looked up without downloading them. Output goes to site/_build/ (index.html and data/):
 
-  presets.parquet    one row per house-rule preset (bids, points, a one-line summary)
+  presets.parquet    one row per house-rule preset (bids, points, a one-line summary, notes)
   charts.parquet     per preset, players, trump honors and small trumps: hands, average
                      points, highest bid with expected points >= 0 (charts/*.csv)
   chart_ev.parquet   the same groups, one row per bid: expected points of that bid (ev) and
@@ -20,6 +20,7 @@ looked up without downloading them. Output goes to site/_build/ (index.html and 
 """
 import argparse
 import glob
+import html
 import json
 import os
 import re
@@ -33,6 +34,7 @@ import pyarrow.parquet as pq
 ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
 sys.path.insert(0, ROOT)
 
+from cardsim.pitch.notes import COMMON, NOTES  # noqa: E402
 from cardsim.pitch.rules import PRESETS, describe  # noqa: E402
 
 OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "_build")
@@ -56,7 +58,7 @@ def write(df, name, row_group_size=None):
 def presets():
     rows = []
     for name, r in PRESETS.items():
-        rows.append(dict(preset=name, summary=describe(r), min_bid=r.min_bid, max_bid=r.max_bid,
+        rows.append(dict(preset=name, summary=describe(r), notes=NOTES[name], min_bid=r.min_bid, max_bid=r.max_bid,
                          moon_bid=r.moon_bid, moon_value=r.moon_value, points_total=r.points_total,
                          target=r.target, deal_size=r.deal_size, hand_size=r.hand_size, jokers=r.jokers,
                          off_jack=r.off_jack, may_trump=r.may_trump, low_to_captor=r.low_to_captor))
@@ -131,7 +133,10 @@ def main():
     a = ap.parse_args()
     shutil.rmtree(OUT, ignore_errors=True)
     os.makedirs(os.path.join(OUT, "data"))
-    shutil.copy(os.path.join(os.path.dirname(os.path.abspath(__file__)), "index.html"), OUT)
+    with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "index.html"), encoding="utf-8") as f:
+        page = f.read().replace("<!--COMMON-->", html.escape(COMMON))
+    with open(os.path.join(OUT, "index.html"), "w", encoding="utf-8", newline="\n") as f:
+        f.write(page)
     open(os.path.join(OUT, ".nojekyll"), "w").close()
     wide, long = charts()
     sizes = {"presets": write(presets(), "presets.parquet"),
