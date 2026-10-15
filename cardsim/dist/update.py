@@ -120,9 +120,26 @@ def _prune(keep):
 
 def restart(root):
     """Run this worker again from root, with the same Python and arguments."""
-    # older code has no --auto-update switch: carry it in the environment instead
+    # older code may not know newer options: carry them in the environment instead
     env = dict(os.environ, PYTHONPATH=root, WORKER_AUTO_UPDATE="1")
-    args = [sys.executable, "-m", "cardsim.dist.worker"] + [a for a in sys.argv[1:] if a != "--auto-update"]
+    flags = {"--spot": "WORKER_SPOT"}
+    valued = {"--piece-seconds": "WORKER_PIECE_SECONDS", "--gpu-tuning": "WORKER_GPU_TUNING"}
+    rest, argv, i = [], sys.argv[1:], 0
+    while i < len(argv):
+        name, eq, val = argv[i].partition("=")
+        if name == "--auto-update":
+            pass
+        elif name in flags:
+            env[flags[name]] = "1"
+        elif name in valued:
+            if not eq:
+                i += 1
+                val = argv[i]
+            env[valued[name]] = val
+        else:
+            rest.append(argv[i])
+        i += 1
+    args = [sys.executable, "-m", "cardsim.dist.worker"] + rest
     os.chdir(root)
     sys.stdout.flush()
     sys.stderr.flush()

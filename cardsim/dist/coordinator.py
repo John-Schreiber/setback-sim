@@ -124,20 +124,33 @@ class Store:
                                 (time.time(), jid, worker)).rowcount
         return n == 1
 
-    def finish(self, jid, worker, payload, seconds):
+    def finish(self, jid, worker, payload, seconds, end=None):
+        """Store a slice's result. end < the slice's end: a worker that had to stop early
+        (spot interruption, shutdown) sends [start, end); that part is done and the rest
+        goes back in the queue. Only the worker holding the lease may split a slice."""
         with self.lock:
             job = self.db.execute("select * from jobs where id=?", (jid,)).fetchone()
             if job is None or job["state"] == "done":
                 return False
             arrays = dict(np.load(io.BytesIO(payload)))  # validate before accepting
+            partial = end is not None and end != job["end"]
+            if partial:
+                if job["state"] != "leased" or job["worker"] != worker or not job["start"] < end < job["end"]:
+                    return False
+                if any(len(a) != end - job["start"] for a in arrays.values()):
+                    raise ValueError(f"partial result for {job['start']}-{end} has the wrong length")
+            stop = end if partial else job["end"]
             d = os.path.join(self.data, "results", job["study"])
             os.makedirs(d, exist_ok=True)
-            fn = os.path.join(d, f"{job['start']:012d}_{job['end']:012d}.npz")
+            fn = os.path.join(d, f"{job['start']:012d}_{stop:012d}.npz")
             np.savez(fn + ".tmp.npz", **arrays)
             os.replace(fn + ".tmp.npz", fn)
             with self.db:
-                self.db.execute("update jobs set state='done', worker=?, finished_at=?, seconds=? where id=?",
-                                (worker, time.time(), seconds, jid))
+                self.db.execute("update jobs set state='done', end=?, worker=?, finished_at=?, seconds=? where id=?",
+                                (stop, worker, time.time(), seconds, jid))
+                if partial:
+                    self.db.execute("insert into jobs (study,start,end,state,attempts) values (?,?,?,'pending',0)",
+                                    (job["study"], end, job["end"]))
         return True
 
     def fail(self, jid, worker, error):
@@ -206,9 +219,13 @@ def create_app(data, lease_timeout=120.0, token=None):
         return {"ok": True}
 
     @app.post("/jobs/{jid}/result")
-    async def result(jid: int, worker: str, seconds: float, req: Request, x_token: str = Header(None)):
+    async def result(jid: int, worker: str, seconds: float, req: Request, end: int = None,
+                     x_token: str = Header(None)):
         check(x_token)
-        ok = store.finish(jid, worker, await req.body(), seconds)
+        try:
+            ok = store.finish(jid, worker, await req.body(), seconds, end)
+        except ValueError as e:
+            raise HTTPException(400, str(e))
         return {"ok": ok}
 
     @app.post("/jobs/{jid}/fail")

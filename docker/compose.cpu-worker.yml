@@ -15,8 +15,10 @@ services:
       COORDINATOR_TOKEN: ${COORDINATOR_TOKEN:-}
       TARGET_MINUTES: ${TARGET_MINUTES:-7.5}
       WORKER_AUTO_UPDATE: ${WORKER_AUTO_UPDATE:-0}  # 1: fetch a study's code from GitHub (update.py)
+      WORKER_SPOT: ${WORKER_SPOT:-0}  # 1 on an EC2 spot instance: stop cleanly on the interruption notice
       NUMBA_NUM_THREADS: ${CPU_THREADS:-}
-    volumes: ["worker-code:/root/.cache/setback-sim"]  # code fetched by auto-update
+    volumes: ["worker-code:/root/.cache/setback-sim"]  # auto-update code and the GPU tuning cache
+    stop_grace_period: 2m  # time to finish the current piece and upload it (SIGTERM)
     restart: unless-stopped
 
 volumes:

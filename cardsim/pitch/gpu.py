@@ -39,6 +39,7 @@ sample_world, rng_seed = core.sample_world, core.rng_seed
 
 MAXP, MAXT, MAXOPT, TPB = 6, 3, 9, 128  # players, teams, legal cards per decision, threads/block
 ROLLOUT_WAVES = 16  # play-out grid = this many full loads of the GPU (threads stride over the rest)
+ROLLOUT_TPB = TPB   # threads/block for k_rollout; configure() can change it and its register cap
 
 
 @cuda.jit(device=True)
@@ -197,6 +198,20 @@ def k_init_states(states, seed, base):
         rng_seed(states, i, seed, base + i)
 
 
+_ROLLOUT_PY = k_rollout.py_func
+
+
+def configure(max_registers=None, rollout_tpb=TPB):
+    """Compile k_rollout with a register cap and launch it with this many threads per block.
+    Play-outs take ~85-90% of search time and the kernel is register-bound (134 registers:
+    a quarter of an RTX 3070's threads in flight), so the best setting depends on the GPU
+    (gpu_tune.py finds it). Results are identical for every setting: each (game, sample,
+    card) play-out is independent and lands in its own slot."""
+    global k_rollout, ROLLOUT_TPB
+    k_rollout = cuda.jit(max_registers=max_registers)(_ROLLOUT_PY) if max_registers else cuda.jit(_ROLLOUT_PY)
+    ROLLOUT_TPB = int(rollout_tpb)
+
+
 def _blocks(nthreads):
     return max(1, math.ceil(nthreads / TPB))
 
@@ -218,7 +233,7 @@ def play_batch(hands0, trumps, lo_team, team, rules, search, tab, gf, track=True
     chunk = max(1, min(B, max_rollout_threads // (nsamp * MAXOPT))) if search.max() else B
     # fixed grid for the strided play-outs: enough threads to fill the GPU several times
     sms = cuda.get_current_device().MULTIPROCESSOR_COUNT
-    rollout_grid = sms * 2048 * ROLLOUT_WAVES // TPB
+    rollout_grid = sms * 2048 * ROLLOUT_WAVES // ROLLOUT_TPB
     out = np.zeros((B, nteams), np.int64)
     won_all = np.zeros((B, nteams), np.int64)
     d_team, d_rules = cuda.to_device(team), cuda.to_device(np.ascontiguousarray(rules, np.int64))
@@ -254,7 +269,7 @@ def play_batch(hands0, trumps, lo_team, team, rules, search, tab, gf, track=True
                 k_reset[1, 1](d_nwork)
                 k_count[_blocks(G), TPB](d_hands, d_gone, d_tc, tlen, d_leader, d_trumps, d_team, n,
                                          d_search, d_work_g, d_work_k, d_nwork, d_tab, d_gf)
-                k_rollout[rollout_grid, TPB](d_hands, d_gone, d_won, d_voids, d_tp, d_tc, tlen, d_leader,
+                k_rollout[rollout_grid, ROLLOUT_TPB](d_hands, d_gone, d_won, d_voids, d_tp, d_tc, tlen, d_leader,
                                              d_trumps, d_team, n, nteams, d_search, nsamp, d_rules, track,
                                              d_worlds, d_vals, d_work_g, d_work_k, d_nwork, d_tab, d_gf)
             k_advance[_blocks(G), TPB](d_hands, d_gone, d_won, d_voids, d_tp, d_tc, tlen, d_leader, d_last,

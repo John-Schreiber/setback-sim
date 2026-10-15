@@ -21,7 +21,7 @@ from cardsim.pitch import PitchRules, fast, gpu  # noqa: E402
 
 CASES = [("setback4", 4, 0, 400_000), ("setback4", 4, 16, 4_000), ("setback4", 6, 16, 2_000),
          ("ten_point", 4, 16, 4_000), ("nine_five", 4, 16, 2_000)]
-GPU_SCALE = 10
+GPU_SCALE = 50  # GPU runs need ~200k games to fill the card; smaller batches understate its speed
 
 
 def run(label):
