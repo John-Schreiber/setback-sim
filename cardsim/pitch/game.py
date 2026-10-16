@@ -22,7 +22,7 @@ from numba import njit, prange
 
 from cardsim.pitch import PitchRules
 from cardsim.pitch import fast
-from cardsim.pitch.bidchart import OUT, honor_list
+from cardsim.pitch.bidchart import OUT, honor_list, read_chart
 from cardsim.pitch.core import bit, lowest, popcount
 from cardsim.pitch.tables import F_ESM, F_POWER, G_DECK
 
@@ -42,7 +42,7 @@ class Brain:
     the charts' own line (max_bid: expected points >= 0)."""
 
     def __init__(self, rules, nplayers, threshold=0.0, measure="ev"):
-        df = pd.read_csv(os.path.join(OUT, f"{rules.name}_{nplayers}p.csv"), keep_default_na=False)
+        df = read_chart(os.path.join(OUT, f"{rules.name}_{nplayers}p.csv"))
         hon = honor_list(rules)
         self.honor_cards = np.array([[f(t) for _, f in hon] for t in range(4)], np.int64)
         H = len(hon)
@@ -52,6 +52,8 @@ class Brain:
         seen = np.zeros((1 << H, MAX_SMALL), bool)
         bids = list(range(rules.min_bid, rules.max_bid + 1))
         for r in df.itertuples():
+            if getattr(r, "inferred", 0):
+                continue  # too few hands for its numbers: filled in below, as the chart does
             m = sum(1 << names.index(x) for x in str(r.honors).split()) if r.honors else 0
             s = min(int(r.small), MAX_SMALL - 1)
             ok = [k for k in bids if getattr(r, f"{measure}{k}") >= threshold]

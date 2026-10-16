@@ -60,6 +60,7 @@
   table.grid td.c { text-align: center; cursor: pointer; min-width: 3.2em; font-variant-numeric: tabular-nums; }
   table.grid td.c.sel { outline: 2px solid var(--ink); outline-offset: -2px; }
   table.grid td.c.blank { cursor: default; }
+  table.grid td.c.inf { font-style: italic; opacity: .75; }
   .lv0 { background: var(--b0); } .lv1 { background: var(--b1); } .lv2 { background: var(--b2); }
   .lv3 { background: var(--b3); } .lv4 { background: var(--b4); color: #fff; } .lv5 { background: var(--b5); color: #fff; }
   .split { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 20px; align-items: start; }
@@ -106,9 +107,10 @@
       <div>
         <p class="muted">Each cell: how far to go in an auction with that trump holding, by the line that wins the
           most whole games (net expected points of at least a per-variant threshold, found in whole-game simulations);
-          a higher bid never scores more, so bid only as high as it takes to win.
+          a higher bid never scores more, so bid only as high as it takes to win. A bid in (brackets): too few hands
+          seen, taken from the weaker holdings next to it.
           Rows: trump honors held; columns: other small trumps. * = shooting the moon also pays.
-          Blank = fewer than 200 hands seen. Hover a cell for every bid's value; click to pin it.</p>
+          Blank = no such hand. Hover a cell for every bid's value; click to pin it.</p>
         <div class="scroll"><table class="grid" id="grid"></table></div>
       </div>
       <div class="card" id="detail"><span class="muted">Hover or click a cell for details.</span></div>
@@ -229,7 +231,7 @@ async function drawChart() {
   $("summary").textContent = "In short: " + p.summary;
   const where = `preset = ${sqlStr(preset)} AND players = ${players}`;
   const [rows, evRows] = await Promise.all([
-    q(`SELECT honors, small, hands, avg, opp, max_bid, bid_line, ev_moon, net_moon FROM charts WHERE ${where}`),
+    q(`SELECT * FROM charts WHERE ${where}`),
     q(`SELECT honors, small, bid, ev, net FROM chart_ev WHERE ${where} ORDER BY bid`)]);
   const grid = $("grid");
   pinned = null;
@@ -244,9 +246,11 @@ async function drawChart() {
   for (const r of rows) {
     r.small = num(r.small); r.hands = num(r.hands); r.max_bid = num(r.max_bid);
     r.bid_line = r.bid_line == null ? r.max_bid : num(r.bid_line);
+    r.inferred = num(r.inferred || 0);
+    r.shown = r.hands >= 200 || r.source === "every hand" || r.inferred;  // enough hands, or filled in
     r.evs = [];
     cell.set(`${r.honors}|${r.small}`, r);
-    if (r.hands >= 200) { hons.add(r.honors); maxSmall = Math.max(maxSmall, r.small); }
+    if (r.shown) { hons.add(r.honors); maxSmall = Math.max(maxSmall, r.small); }
   }
   for (const e of evRows) cell.get(`${e.honors}|${num(e.small)}`)?.evs.push({ bid: num(e.bid), ev: e.ev, net: e.net });
   const cols = [...Array(maxSmall + 1).keys()];
@@ -256,7 +260,11 @@ async function drawChart() {
     html += `<tr><th class="l">${esc(h || "(none)")}</th>`;
     for (const s of cols) {
       const r = cell.get(`${h}|${s}`);
-      if (!r || r.hands < 200) { html += `<td class="c blank"></td>`; continue; }
+      if (!r || !r.shown) { html += `<td class="c blank"></td>`; continue; }
+      if (r.inferred) {
+        html += `<td class="c inf lv${level(r.bid_line, p)}" data-h="${esc(h)}" data-s="${s}" title="too few hands seen: taken from the weaker holdings next to it">(${r.bid_line || "pass"})</td>`;
+        continue;
+      }
       const star = r.ev_moon != null && r.ev_moon > 0 ? "*" : "";
       html += `<td class="c lv${level(r.bid_line, p)}" data-h="${esc(h)}" data-s="${s}">${r.bid_line || "pass"}${star}</td>`;
     }
@@ -269,6 +277,15 @@ function showDetail(td) {
   const r = td && chartCells.get(`${td.dataset.h}|${td.dataset.s}`);
   if (!r) { $("detail").innerHTML = `<span class="muted">Hover or click a cell for details.</span>`; return; }
   const s = r.small, ceiling = r.bid_line, p = presets[$("preset").value] || {};
+  if (r.inferred) {
+    $("detail").innerHTML = `
+      <div class="muted">${esc(r.honors || "no honors")} + ${s} small trump${s === 1 ? "" : "s"} · ${r.hands.toLocaleString()} hands seen</div>
+      <div class="big">${ceiling ? "up to " + ceiling : "pass"}</div>
+      <p class="muted">Too few hands with this holding were seen to judge it directly, so it takes the best bid of the
+        weaker holdings next to it (one honor or one small trump fewer): adding a trump never makes a hand worth
+        less.</p>`;
+    return;
+  }
   const line = +$("players").value === 4 ? p.line4 : p.line6;
   $("detail").innerHTML = `
     <div class="muted">${esc(r.honors || "no honors")} + ${s} small trump${s === 1 ? "" : "s"} · ${r.hands.toLocaleString()} hands</div>

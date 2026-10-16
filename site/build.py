@@ -78,13 +78,18 @@ def charts():
     wide, long = [], []
     for fn in sorted(glob.glob(os.path.join(ROOT, "charts", "*_[46]p.csv"))):
         preset, n = re.match(r"(.+)_(\d)p\.csv$", os.path.basename(fn)).groups()
-        df = pd.read_csv(fn, keep_default_na=False)
+        df = pd.read_csv(fn, keep_default_na=False)  # "" is the no-honors label
+        for c in df.columns:  # numbers left blank (inferred cells) -> NaN
+            if c not in ("honors", "source"):
+                df[c] = pd.to_numeric(df[c], errors="coerce")
         df.insert(0, "players", int(n))
         df.insert(0, "preset", preset)
         evs = [c for c in df.columns if re.fullmatch(r"ev\d+", c)]
         keep = ["preset", "players", "honors", "small", "hands", "avg", "opp", "p_moon", "max_bid"]
         w = df[keep].copy()
         w["bid_line"] = df["bid_line"] if "bid_line" in df else df["max_bid"]
+        w["inferred"] = df["inferred"] if "inferred" in df else 0
+        w["source"] = df["source"] if "source" in df else "survey"
         w["ev_moon"] = df["ev_moon"] if "ev_moon" in df else None
         w["net_moon"] = df["net_moon"] if "net_moon" in df else None
         wide.append(w)
