@@ -206,7 +206,7 @@ def main():
                     help="run slices in pieces of about this long, the most a stop can lose")
     ap.add_argument("--gpu-tuning", default=os.environ.get("WORKER_GPU_TUNING", "auto"),
                     help="play-out kernel settings: auto (measure once per GPU, cached), default, or "
-                         "REGS[:THREADS] such as 128:64")
+                         "[ENGINE:]REGS[:THREADS] such as cpp:72:128 (ENGINE numba or cpp)")
     a = ap.parse_args()
     shutdown = threading.Event()
     for sig in (signal.SIGTERM, signal.SIGINT):

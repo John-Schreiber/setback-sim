@@ -23,6 +23,7 @@ import numpy as np
 KINDS = ("survey", "allhands")
 COMPUTE_FILES = ["cardsim/cards.py", "cardsim/hands.py", "cardsim/pitch/rules.py", "cardsim/pitch/tables.py",
                  "cardsim/pitch/core.py", "cardsim/pitch/fast.py", "cardsim/pitch/gpu.py",
+                 "cardsim/pitch/rollout.cu", "cardsim/pitch/gpu_cpp.py",
                  "cardsim/dist/tasks.py", "setback.py", "trump_weights.py"]
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 

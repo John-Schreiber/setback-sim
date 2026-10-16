@@ -2,6 +2,8 @@
 
 Both rule-based and search games must match exactly: same deals, same points. Search
 draws from the same seeded streams with the same sampler on both (core.sample_world).
+Search games are checked with both GPU play-out kernels: Numba's and the C++ one
+(rollout.cu).
 
     .venv/Scripts/python tests/test_pitch_gpu.py
 """
@@ -49,11 +51,15 @@ def check_search_exact(preset, n, deals=1500, samples=8):
     cpu = fast.survey(deals, n, r.deal_size, r.hand_size, r.refill, g.team, g.nteams, True, g.rules_bt, s,
                       g.tab, g.gf, g.tw, g.tl, g.tx, 999, 5000)
     tc = time.time() - t0
-    t0 = time.time()
-    gp = gpu.survey(deals, g, s, seed=999, start=5000, batch=600)
-    tg = time.time() - t0
-    assert np.array_equal(cpu, gp), (preset, n, np.argwhere((cpu != gp).any(axis=1))[:5])
-    print(f"  {preset:20} {n}-handed: {deals} search games identical (cpu {tc:.0f}s, gpu {tg:.0f}s)")
+    for engine in ("numba", "cpp"):
+        gpu.configure(engine=engine)
+        t0 = time.time()
+        gp = gpu.survey(deals, g, s, seed=999, start=5000, batch=600)
+        tg = time.time() - t0
+        assert np.array_equal(cpu, gp), (preset, n, engine, np.argwhere((cpu != gp).any(axis=1))[:5])
+        print(f"  {preset:20} {n}-handed: {deals} search games identical, {engine} play-outs "
+              f"(cpu {tc:.0f}s, gpu {tg:.0f}s)")
+    gpu.configure()
 
 
 if __name__ == "__main__":

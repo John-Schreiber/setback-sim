@@ -40,6 +40,8 @@ sample_world, rng_seed = core.sample_world, core.rng_seed
 MAXP, MAXT, MAXOPT, TPB = 6, 3, 9, 128  # players, teams, legal cards per decision, threads/block
 ROLLOUT_WAVES = 16  # play-out grid = this many full loads of the GPU (threads stride over the rest)
 ROLLOUT_TPB = TPB   # threads/block for k_rollout; configure() can change it and its register cap
+ROLLOUT_REGS = None  # register cap the play-out kernel was compiled with
+ENGINE = "numba"     # play-out kernel: "numba" (k_rollout) or "cpp" (rollout.cu via gpu_cpp.py)
 
 
 @cuda.jit(device=True)
@@ -201,15 +203,18 @@ def k_init_states(states, seed, base):
 _ROLLOUT_PY = k_rollout.py_func
 
 
-def configure(max_registers=None, rollout_tpb=TPB):
-    """Compile k_rollout with a register cap and launch it with this many threads per block.
+def configure(max_registers=None, rollout_tpb=TPB, engine="numba"):
+    """Compile the play-out kernel with a register cap and launch it with this many threads
+    per block. engine: "numba" (k_rollout) or "cpp" (the same play in CUDA C++, rollout.cu).
     Play-outs take ~85-90% of search time and the kernel is register-bound (134 registers:
     a quarter of an RTX 3070's threads in flight), so the best setting depends on the GPU
     (gpu_tune.py finds it). Results are identical for every setting: each (game, sample,
     card) play-out is independent and lands in its own slot."""
-    global k_rollout, ROLLOUT_TPB
+    global k_rollout, ROLLOUT_TPB, ROLLOUT_REGS, ENGINE
+    if engine not in ("numba", "cpp"):
+        raise ValueError(f"unknown play-out engine {engine!r}")
     k_rollout = cuda.jit(max_registers=max_registers)(_ROLLOUT_PY) if max_registers else cuda.jit(_ROLLOUT_PY)
-    ROLLOUT_TPB = int(rollout_tpb)
+    ROLLOUT_TPB, ROLLOUT_REGS, ENGINE = int(rollout_tpb), max_registers, engine
 
 
 def _blocks(nthreads):
@@ -269,9 +274,13 @@ def play_batch(hands0, trumps, lo_team, team, rules, search, tab, gf, track=True
                 k_reset[1, 1](d_nwork)
                 k_count[_blocks(G), TPB](d_hands, d_gone, d_tc, tlen, d_leader, d_trumps, d_team, n,
                                          d_search, d_work_g, d_work_k, d_nwork, d_tab, d_gf)
-                k_rollout[rollout_grid, ROLLOUT_TPB](d_hands, d_gone, d_won, d_voids, d_tp, d_tc, tlen, d_leader,
-                                             d_trumps, d_team, n, nteams, d_search, nsamp, d_rules, track,
-                                             d_worlds, d_vals, d_work_g, d_work_k, d_nwork, d_tab, d_gf)
+                rargs = (d_hands, d_gone, d_won, d_voids, d_tp, d_tc, tlen, d_leader, d_trumps, d_team, n, nteams,
+                         d_search, nsamp, d_rules, track, d_worlds, d_vals, d_work_g, d_work_k, d_nwork, d_tab, d_gf)
+                if ENGINE == "cpp":
+                    from cardsim.pitch import gpu_cpp
+                    gpu_cpp.launch(rollout_grid, ROLLOUT_TPB, ROLLOUT_REGS, *rargs)
+                else:
+                    k_rollout[rollout_grid, ROLLOUT_TPB](*rargs)
             k_advance[_blocks(G), TPB](d_hands, d_gone, d_won, d_voids, d_tp, d_tc, tlen, d_leader, d_last,
                                        d_trumps, d_team, n, d_search, d_rules, track, d_vals, d_tab, d_gf)
         d_out = cuda.device_array((G, nteams), np.int64)
