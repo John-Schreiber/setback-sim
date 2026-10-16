@@ -8,6 +8,12 @@
 // instructions and registers for every index, power and key. Here only the card masks are
 // 64-bit. Function by function this mirrors core.py; keep the two in step (the tests
 // require identical results).
+//
+// Divergence (Nsight Compute: about half the lanes idle) is cut where that costs no extra
+// work: small decisions (beats, could_beat, voids, the running trick winner) are selects,
+// not branches; teams sit in a register; seat arithmetic avoids the integer modulo. Loops
+// over a hand's cards keep their early exits: running every thread to the worst case
+// (all hand slots, every opponent) measured 15-23% slower than the divergence it saved.
 
 typedef unsigned long long u64;
 typedef long long i64;
@@ -15,9 +21,9 @@ typedef long long i64;
 struct Ctx {
     const i64* __restrict__ tab;  // tab[t][field][i] (tables.py), this game's trump t
     const i64* __restrict__ gf;   // game flags
-    const i64* __restrict__ team; // team of each seat
     const i64* __restrict__ rules;  // rules[team][R_*]
-    int t, n;
+    int t, n, hsize;   // trump, players, cards per hand (bounds every hand-mask loop)
+    unsigned teams;    // team of seat p in bits 2p..2p+1
 };
 
 // ------------------------------------------------------------------ bits and tables
@@ -37,7 +43,9 @@ __device__ __forceinline__ u64 ABOVE(const Ctx& x, int c) { return TM(x, F_ABOVE
 __device__ __forceinline__ i64 MSK(const Ctx& x, int m) { return T(x, F_MASKS, m); }
 __device__ __forceinline__ int G(const Ctx& x, int g) { return (int)__ldg(&x.gf[g]); }
 __device__ __forceinline__ int R(const Ctx& x, int tm, int r) { return (int)__ldg(&x.rules[tm * N_RULES + r]); }
-__device__ __forceinline__ int TEAM(const Ctx& x, int p) { return (int)__ldg(&x.team[p]); }
+__device__ __forceinline__ int TEAM(const Ctx& x, int p) { return (x.teams >> (2 * p)) & 3; }
+// (a + b) % n for 0 <= a, b < n, as a select instead of an integer division
+__device__ __forceinline__ int seat(int a, int b, int n) { int s = a + b; return s >= n ? s - n : s; }
 __device__ __forceinline__ int natural_card(int rank, int suit) { return suit * 13 + rank - 2; }
 
 __device__ int top_trump(const Ctx& x, u64 m) {
@@ -84,35 +92,42 @@ __device__ __forceinline__ u64 lead_mask(const Ctx& x, u64 hand, u64 gone) {
     return hand;
 }
 
+// (bitwise & | on bools below are deliberate: both sides are cheap and evaluating them
+// avoids the branch a short-circuit && would need)
 __device__ __forceinline__ bool beats(const Ctx& x, int a, int b, int lead) {
-    int sa = ES(x, a), sb = ES(x, b);
-    if (sa == x.t) return sb != x.t || POW(x, a) > POW(x, b);
-    if (sb == x.t) return false;
-    return sa == lead && POW(x, a) > POW(x, b);
+    const int sa = ES(x, a), sb = ES(x, b);
+    const bool at = sa == x.t, bt = sb == x.t, higher = POW(x, a) > POW(x, b);
+    return (at & (!bt | higher)) | (!at & !bt & (sa == lead) & higher);
 }
 
 __device__ __forceinline__ void trick_winner(const Ctx& x, const int* tp, const int* tc, int tlen, int& wp, int& wc) {
-    int lead = ES(x, tc[0]);
+    const int lead = ES(x, tc[0]);
     wp = tp[0];
     wc = tc[0];
-    for (int i = 1; i < tlen; i++)
-        if (beats(x, tc[i], wc, lead)) { wp = tp[i]; wc = tc[i]; }
+    for (int i = 1; i < tlen; i++) {
+        const bool b = beats(x, tc[i], wc, lead);
+        wp = b ? tp[i] : wp;
+        wc = b ? tc[i] : wc;
+    }
 }
 
 __device__ __forceinline__ bool could_beat(const Ctx& x, int p, int c, int lead, u64 seen, const int* voids) {
-    bool can_trump = ((voids[p] >> x.t) & 1) == 0 && (ESM(x, x.t) & ~seen) != 0;
-    u64 above = ABOVE(x, c) & ~seen;
-    if (ES(x, c) == x.t) return can_trump && above != 0;
-    if (can_trump) return true;
-    return ((voids[p] >> lead) & 1) == 0 && ES(x, c) == lead && above != 0;
+    const bool can_trump = (((voids[p] >> x.t) & 1) == 0) & ((ESM(x, x.t) & ~seen) != 0);
+    const bool above = (ABOVE(x, c) & ~seen) != 0;
+    const int sc = ES(x, c);
+    const bool follows = (((voids[p] >> lead) & 1) == 0) & (sc == lead) & above;
+    return sc == x.t ? (can_trump & above) : (can_trump | follows);
 }
 
 __device__ __forceinline__ void note_void(const Ctx& x, int* voids, int p, const int* tc, int tlen, int c) {
     if (tlen == 0) return;
-    int lead = ES(x, tc[0]), s = ES(x, c);
-    if (lead == x.t && s != x.t) voids[p] |= 1 << x.t;
-    else if (lead != x.t && s != lead && s != x.t) voids[p] |= 1 << lead;  // may still hold trump
-    else if (lead != x.t && s == x.t && !G(x, G_MAY_TRUMP)) voids[p] |= 1 << lead;  // must follow: a void
+    const int lead = ES(x, tc[0]), s = ES(x, c), t = x.t;
+    const bool trump_led = lead == t;
+    // trump led, not followed: void in trump; else off-suit, not followed: void in the led suit
+    // (may still hold trump: chose not to ruff); else trumped in where one must follow: a void
+    const bool v_trump = trump_led & (s != t);
+    const bool v_lead = !trump_led & (((s != lead) & (s != t)) | ((s == t) & !G(x, G_MAY_TRUMP)));
+    voids[p] |= (v_trump ? 1 << t : 0) | (v_lead ? 1 << lead : 0);
 }
 
 // lowest key wins; ties go to the lower card (ascending scan, strict compare)
@@ -120,18 +135,20 @@ __device__ __forceinline__ int min_key(const Ctx& x, u64 m, int field) {
     int best = -1;
     i64 bk = 0x7FFFFFFFFFFFFFFFll;
     while (m) {
-        int c = lowest(m);
+        const int c = lowest(m);
         m &= m - 1;
-        i64 k = T(x, field, c);
-        if (k < bk) { best = c; bk = k; }
+        const i64 k = T(x, field, c);
+        best = k < bk ? c : best;
+        bk = k < bk ? k : bk;
     }
     return best;
 }
 
+// card c wins the trick against every opponent still to play (certain)
 __device__ __forceinline__ bool holds(const Ctx& x, int c, int me, int tlen, int lead, u64 seen, const int* voids) {
-    int n = x.n, tme = TEAM(x, me);
+    const int n = x.n, tme = TEAM(x, me);
     for (int i = 1; i < n - tlen; i++) {
-        int p = (me + i) % n;
+        const int p = seat(me, i, n);
         if (TEAM(x, p) != tme && could_beat(x, p, c, lead, seen, voids)) return false;
     }
     return true;
@@ -157,17 +174,16 @@ __device__ int choose(const Ctx& x, int me, u64 hand, u64 leads, const int* tp, 
         i64 bk = -1;
         u64 m = leads & ~TMK;
         while (m) {
-            int c = lowest(m);
+            const int c = lowest(m);
             m &= m - 1;
             bool safe = true;
             for (int p = 0; p < n; p++) {
                 if (TEAM(x, p) == tme) continue;
                 if (could_beat(x, p, c, ES(x, c), seen, voids)) { safe = false; break; }
             }
-            if (safe) {
-                i64 k = T(x, F_CASH, c);
-                if (k > bk) { best = c; bk = k; }
-            }
+            const i64 k = safe ? T(x, F_CASH, c) : bk;
+            best = k > bk ? c : best;
+            bk = k > bk ? k : bk;
         }
         if (best >= 0) return best;
         if (boss) return top;
@@ -235,10 +251,11 @@ __device__ int choose(const Ctx& x, int me, u64 hand, u64 leads, const int* tp, 
             for (int part = 0; part < 2; part++) {
                 u64 m = part == 0 ? (losers & led) : (losers & ~led);
                 while (m) {
-                    int c = lowest(m);
+                    const int c = lowest(m);
                     m &= m - 1;
-                    i64 k = T(x, F_SMEAR, c);
-                    if (k > bk) { best = c; bk = k; }
+                    const i64 k = T(x, F_SMEAR, c);
+                    best = k > bk ? c : best;
+                    bk = k > bk ? k : bk;
                 }
             }
             return best;
@@ -263,7 +280,7 @@ __device__ int choose(const Ctx& x, int me, u64 hand, u64 leads, const int* tp, 
         if (last) return min_key(x, winners, F_CHEAP);
         u64 sure = 0, m = winners;
         while (m) {
-            int c = lowest(m);
+            const int c = lowest(m);
             m &= m - 1;
             if (holds(x, c, me, tlen, lead, seen | bit(c), voids)) sure |= bit(c);
         }
@@ -276,7 +293,7 @@ __device__ int choose(const Ctx& x, int me, u64 hand, u64 leads, const int* tp, 
         // partner still to play could beat the winner: throw them an off-suit 10
         bool pard_can = false;
         for (int i = 1; i < n - tlen; i++) {
-            int q = (me + i) % n;
+            int q = seat(me, i, n);
             if (TEAM(x, q) == tme && (ps == 2 || i == n - tlen - 1) && could_beat(x, q, wc, lead, seen, voids))
                 pard_can = true;
         }
@@ -392,7 +409,7 @@ __device__ int rollout(const Ctx& x, u64* hands, int* tp, int* tc, int tlen, int
             last_team = wt;
             if (hands[leader] == 0) return last_team;
         }
-        int p = (leader + tlen) % n;
+        int p = seat(leader, tlen, n);
         int c = heur_pick(x, p, hands, tp, tc, tlen, gone, voids);
         hands[p] &= ~bit(c);
         if (track) note_void(x, voids, p, tc, tlen, c);
@@ -422,9 +439,11 @@ extern "C" __global__ void k_rollout_cpp(
          idx += (long long)gridDim.x * blockDim.x) {
         const int wi = (int)(idx / nsamp), s = (int)(idx % nsamp);
         const int g = work_g[wi], k = work_k[wi];
-        const int p = (int)((leader[g] + tlen) % n);
+        unsigned teams = 0;
+        for (int q = 0; q < n; q++) teams |= (unsigned)team[q] << (2 * q);
+        const int p = seat((int)leader[g], tlen, n);
         if (s >= (int)search[team[p]]) continue;
-        Ctx x{tab, gf, team, rules, (int)trumps[g], n};
+        Ctx x{tab, gf, rules, (int)trumps[g], n, (int)gf[G_HAND], teams};
         const u64 hand = (u64)hands[g * n + p];
         int tcg[MAXP];
         for (int q = 0; q < MAXP; q++) tcg[q] = q < n ? (int)tc[g * n + q] : 0;

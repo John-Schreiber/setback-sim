@@ -56,9 +56,11 @@ leads first and that card sets trump; you may always trump in. 4-handed is two t
 - **Players.** Rule-based players follow hand-written rules, tuned by finding where search
   disagreed with them and testing each fix head-to-head. Search players try each legal card
   against many guesses of the hidden cards and keep the best. With 16 guesses per decision,
-  4-handed, they play about 225,000 games per second on an RTX 3070, 22,000 on a GTX 1060 and
-  4,500 on a Ryzen 5600X's CPU. Each GPU tunes the play-out kernel (85-90% of the time) for
-  itself: on the 3070 that is worth about 16%.
+  4-handed, they play about 400,000 games per second on an RTX 3070 and 4,500 on a Ryzen
+  5600X's CPU. The play-outs that take 85-98% of GPU time run in a CUDA C++ kernel
+  (`cardsim/pitch/rollout.cu`), the same play as the Numba code with 32-bit arithmetic and
+  fewer branches, 2.4-3x faster and checked to give identical games; each GPU picks the
+  faster kernel and its settings for itself (`cardsim/pitch/gpu_tune.py`).
 - **Every hand.** Up to suit relabeling, the 20,358,520 possible 6-card hands reduce to
   962,988. `allhands.py` plays each one as bidder against hundreds of random deals and saves
   the per-hand results: the chance of making and expected points of each bid and, for tables

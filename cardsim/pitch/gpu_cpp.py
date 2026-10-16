@@ -35,8 +35,14 @@ def kernel(max_registers=None):
     if key not in _cache:
         with open(_SRC, encoding="utf-8") as f:
             src = _header() + f.read()
+        name = "rollout.cu"
+        dump = os.environ.get("CARDSIM_CPP_SOURCE")  # profiling: write the source there, so the
+        if dump:                                      # line info points at a real file
+            with open(dump, "w", encoding="utf-8") as f:
+                f.write(src)
+            name = dump
         cc = dev.compute_capability
-        opts = ProgramOptions(arch=f"sm_{cc.major}{cc.minor}", std="c++17", lineinfo=True,
+        opts = ProgramOptions(name=name, arch=f"sm_{cc.major}{cc.minor}", std="c++17", lineinfo=True,
                               max_register_count=max_registers)
         mod = Program(src, code_type="c++", options=opts).compile("cubin")
         _cache[key] = mod.get_kernel("k_rollout_cpp")

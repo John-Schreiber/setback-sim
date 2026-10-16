@@ -59,13 +59,14 @@ On the coordinator's own machine, point the worker at `http://host.docker.intern
 The first slice of each study is a short calibration run; compiling for the GPU takes a
 minute or two of it. After that, slices take about `TARGET_MINUTES` (default 7.5).
 
-On first start a GPU worker spends a few minutes tuning: it times the play-out kernel at
-several register caps and block sizes on its own card and keeps the fastest (results are
-identical for all of them; an RTX 3070 gains about 16%). The choice is cached per GPU model
-and kernel version (`~/.cache/setback-sim/gpu-tuning.json`, a Docker volume for
-containers). `WORKER_GPU_TUNING` / `--gpu-tuning` sets it instead: `auto` (the default),
-`default` (no tuning), or `REGS[:THREADS]` such as `128:64`. To see what a card picks:
-`uv run python -m cardsim.pitch.gpu_tune`.
+On first start a GPU worker spends a few minutes tuning: it times both play-out kernels
+(Numba's and the CUDA C++ one, compiled for the card with NVRTC) at several register caps
+and block sizes and keeps the fastest. Results are identical for all of them; an RTX 3070
+picks the C++ kernel, about 2.3x the Numba default. The choice is cached per GPU model and
+kernel version (`~/.cache/setback-sim/gpu-tuning.json`, a Docker volume for containers).
+`WORKER_GPU_TUNING` / `--gpu-tuning` sets it instead: `auto` (the default), `default`
+(Numba, no tuning), or `[ENGINE:]REGS[:THREADS]` such as `cpp:72:128`. To see what a card
+picks: `uv run python -m cardsim.pitch.gpu_tune`.
 
 ### CPU workers
 

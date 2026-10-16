@@ -1,7 +1,7 @@
 """Engine speed and exactness, for comparing optimizations.
 
-Runs fixed surveys (same seeds) on CPU and GPU and prints deals per second plus a
-checksum of every result row. An optimization must leave the checksums unchanged
+Runs fixed surveys (same seeds) on CPU and GPU (search on both GPU play-out kernels,
+Numba's and the C++ one) and prints deals per second plus a checksum of every result row. An optimization must leave the checksums unchanged
 (the games are identical) and should raise the speeds. Pass a label to tell runs apart.
 
     .venv/Scripts/python tests/bench_perf.py baseline
@@ -36,14 +36,19 @@ def run(label):
         t = time.time()
         cpu = fast.survey(nh, *args)
         tc = time.time() - t
-        gpu.survey(200, g, srch, seed=7)
         ng = nh * (GPU_SCALE if s else 5)
-        t = time.time()
-        gp = gpu.survey(ng, g, srch, seed=7)
-        tg = time.time() - t
-        assert np.array_equal(cpu, gp[:nh]), "CPU and GPU differ"
-        h = hashlib.sha256(gp.tobytes()).hexdigest()[:12]
-        print(f"  {preset:10} {n}p search {s:2}: CPU {nh / tc:11,.0f}/s   GPU {ng / tg:11,.0f}/s   rows {h}")
+        speeds, digests = [], set()
+        for engine in (("numba", "cpp") if s else ("numba",)):  # play-out kernels matter only for search
+            gpu.configure(engine=engine)
+            gpu.survey(200, g, srch, seed=7)
+            t = time.time()
+            gp = gpu.survey(ng, g, srch, seed=7)
+            speeds.append(f"{engine} {ng / (time.time() - t):9,.0f}/s")
+            assert np.array_equal(cpu, gp[:nh]), f"CPU and GPU ({engine}) differ"
+            digests.add(hashlib.sha256(gp.tobytes()).hexdigest()[:12])
+        gpu.configure()
+        assert len(digests) == 1, "the GPU play-out kernels differ"
+        print(f"  {preset:10} {n}p search {s:2}: CPU {nh / tc:9,.0f}/s   GPU {'   '.join(speeds)}   rows {digests.pop()}")
 
 
 if __name__ == "__main__":

@@ -8,14 +8,19 @@ it lands on, and `--auto-update` fetches the code each study needs.
 
 ## Which instances
 
-Search (look-ahead) play is all GPU integer work, one GPU per worker. Measured at home, with
-the per-GPU tuning, for 4-handed setback4 with 16 samples per decision:
+Search (look-ahead) play is all GPU integer work, one GPU per worker. Measured at home for
+4-handed setback4 with 16 samples per decision, with the Numba play-out kernel the
+estimates below were scaled from:
 
 | Machine | Games per second |
 |---|---|
 | RTX 3070 | about 225,000 (6-handed: 95,000) |
 | GTX 1060 | about 22,000 |
 | Ryzen 5600X, 6 cores | about 4,500 |
+
+The C++ play-out kernel (2026-10-15) runs the 3070 at about 400,000 (6-handed 180,000),
+roughly doubling every GPU figure below and halving its cost per game; the ranking of the
+instance types should hold, but measure before relying on it.
 
 The AWS figures below are **estimates** scaled from those by each GPU's multiprocessors,
 sustained clocks and generation (the 1060 shows older cards do worse than their specs
