@@ -381,7 +381,7 @@ def play_game_log(hands0, bidder, t, team, nteams, track, rules, search, tab, gf
     return sc, log_p, log_c
 
 
-@njit(parallel=True, cache=True)
+@njit(parallel=True, cache=True, nogil=True)  # nogil: gpu.py deals the next batch while one plays
 def deal_batch(start, count, nplayers, deal_size, hand_size, do_refill, team, tab, gf, tw, tl, tx, seed):
     """deal() for hands start..start+count-1 (seed + index, as survey() uses).
     Returns hands (count, nplayers), trump, the team dealt the lowest trump, and the
@@ -435,7 +435,7 @@ def deal_with_hand(hand, t, seed, nplayers, deal_size, hand_size, do_refill, tab
     return hands
 
 
-@njit(parallel=True, cache=True)
+@njit(parallel=True, cache=True, nogil=True)
 def deal_with_hand_batch(hands_in, trumps, ids, deals, nplayers, deal_size, hand_size, do_refill, team,
                          tab, gf, seed):
     """`deals` layouts for each (hand, trump); layout j of hand ids[i] uses seed

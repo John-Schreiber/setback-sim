@@ -222,7 +222,7 @@ def _blocks(nthreads):
 
 
 def play_batch(hands0, trumps, lo_team, team, rules, search, tab, gf, track=True, bidder=0, seed=0,
-               max_rollout_threads=8_000_000, return_won=False, game_offset=0):
+               max_rollout_threads=32_000_000, return_won=False, game_offset=0):
     """Play every deal in hands0 (games x players masks). rules: the rules array of the
     bidding team; search: samples per team (0 = rule-based). game_offset: global index
     of hands0[0]; search's random numbers depend only on (seed, global index), so
@@ -255,34 +255,39 @@ def play_batch(hands0, trumps, lo_team, team, rules, search, tab, gf, track=True
         d_tc = cuda.to_device(np.zeros((G, n), np.int64))
         d_leader = cuda.to_device(np.full(G, bidder, np.int64))
         d_last = cuda.to_device(np.full(G, -1, np.int64))
+        steps = hand_size * n
         if search.max():
             d_worlds = cuda.device_array((G, nsamp, n), np.int64)
             d_vals = cuda.device_array((G, nsamp, MAXOPT), np.float64)
             d_work_g = cuda.device_array(G * MAXOPT, np.int32)
             d_work_k = cuda.device_array(G * MAXOPT, np.int32)
-            d_nwork = cuda.device_array(1, np.int32)
+            d_nwork = cuda.to_device(np.zeros(steps, np.int32))  # one counter slot per step
             rng = cuda.device_array((G * nsamp, 2), dtype=np.uint64)
-            k_init_states[_blocks(G * nsamp), TPB](rng, seed, (game_offset + a) * nsamp)
         else:
             d_vals = cuda.device_array((1, 1, MAXOPT), np.float64)
-        for step in range(hand_size * n):
-            tlen = step % n
+        if ENGINE == "cpp":
+            _steps_cpp(G, n, nteams, nsamp, steps, bool(search.max()), track, seed, (game_offset + a) * nsamp,
+                       rollout_grid, d_hands, d_gone, d_won, d_voids, d_tp, d_tc, d_leader, d_last, d_trumps,
+                       d_team, d_search, d_rules, d_tab, d_gf, d_vals,
+                       *((d_worlds, d_work_g, d_work_k, d_nwork, rng) if search.max() else (None,) * 5))
+        else:
             if search.max():
-                k_sample[_blocks(G * nsamp), TPB](d_hands, d_gone, d_voids, d_tp, d_tc, tlen, d_leader,
-                                                  d_trumps, d_team, n, d_search, nsamp, d_worlds, rng,
-                                                  d_tab, d_gf)
-                k_reset[1, 1](d_nwork)
-                k_count[_blocks(G), TPB](d_hands, d_gone, d_tc, tlen, d_leader, d_trumps, d_team, n,
-                                         d_search, d_work_g, d_work_k, d_nwork, d_tab, d_gf)
-                rargs = (d_hands, d_gone, d_won, d_voids, d_tp, d_tc, tlen, d_leader, d_trumps, d_team, n, nteams,
-                         d_search, nsamp, d_rules, track, d_worlds, d_vals, d_work_g, d_work_k, d_nwork, d_tab, d_gf)
-                if ENGINE == "cpp":
-                    from cardsim.pitch import gpu_cpp
-                    gpu_cpp.launch(rollout_grid, ROLLOUT_TPB, ROLLOUT_REGS, *rargs)
-                else:
-                    k_rollout[rollout_grid, ROLLOUT_TPB](*rargs)
-            k_advance[_blocks(G), TPB](d_hands, d_gone, d_won, d_voids, d_tp, d_tc, tlen, d_leader, d_last,
-                                       d_trumps, d_team, n, d_search, d_rules, track, d_vals, d_tab, d_gf)
+                k_init_states[_blocks(G * nsamp), TPB](rng, seed, (game_offset + a) * nsamp)
+            for step in range(steps):
+                tlen = step % n
+                if search.max():
+                    k_sample[_blocks(G * nsamp), TPB](d_hands, d_gone, d_voids, d_tp, d_tc, tlen, d_leader,
+                                                      d_trumps, d_team, n, d_search, nsamp, d_worlds, rng,
+                                                      d_tab, d_gf)
+                    nw = d_nwork[step:step + 1]
+                    k_count[_blocks(G), TPB](d_hands, d_gone, d_tc, tlen, d_leader, d_trumps, d_team, n,
+                                             d_search, d_work_g, d_work_k, nw, d_tab, d_gf)
+                    k_rollout[rollout_grid, ROLLOUT_TPB](d_hands, d_gone, d_won, d_voids, d_tp, d_tc, tlen,
+                                                         d_leader, d_trumps, d_team, n, nteams, d_search, nsamp,
+                                                         d_rules, track, d_worlds, d_vals, d_work_g, d_work_k, nw,
+                                                         d_tab, d_gf)
+                k_advance[_blocks(G), TPB](d_hands, d_gone, d_won, d_voids, d_tp, d_tc, tlen, d_leader, d_last,
+                                           d_trumps, d_team, n, d_search, d_rules, track, d_vals, d_tab, d_gf)
         d_out = cuda.device_array((G, nteams), np.int64)
         d_lo = cuda.to_device(np.ascontiguousarray(lo_team[a:b], np.int64))
         k_score[_blocks(G), TPB](d_won, d_trumps, d_lo, d_last, d_out, d_tab, d_gf)
@@ -292,19 +297,69 @@ def play_batch(hands0, trumps, lo_team, team, rules, search, tab, gf, track=True
     return (out, won_all) if return_won else out
 
 
+def _steps_cpp(G, n, nteams, nsamp, steps, searching, track, seed, rng_base, rollout_grid, d_hands, d_gone, d_won,
+               d_voids, d_tp, d_tc, d_leader, d_last, d_trumps, d_team, d_search, d_rules, d_tab, d_gf, d_vals,
+               d_worlds, d_work_g, d_work_k, d_nwork, rng):
+    """play_batch's step loop on the C++ kernels (rollout.cu): the same steps as the Numba
+    loop, each step's work counter in its own slot of d_nwork (zeroed once)."""
+    from cardsim.pitch import gpu_cpp as C
+    regs = ROLLOUT_REGS
+    if searching:
+        C.init_states(_blocks(G * nsamp), TPB, regs, rng, G * nsamp, seed, rng_base)
+    for step in range(steps):
+        tlen = step % n
+        if searching:
+            C.sample(_blocks(G * nsamp), TPB, regs, d_hands, d_gone, d_voids, d_tc, tlen, d_leader, d_trumps, d_team,
+                     n, d_search, nsamp, d_worlds, rng, G, d_tab, d_gf)
+            nw = C.slot(d_nwork, step)
+            C.count(_blocks(G), TPB, regs, d_hands, d_gone, d_tc, tlen, d_leader, d_trumps, d_team, n, d_search,
+                    d_work_g, d_work_k, nw, G, d_tab, d_gf)
+            C.rollout(rollout_grid, ROLLOUT_TPB, regs, d_hands, d_gone, d_won, d_voids, d_tp, d_tc, tlen, d_leader,
+                      d_trumps, d_team, n, nteams, d_search, nsamp, d_rules, track, d_worlds, d_vals, d_work_g,
+                      d_work_k, nw, d_tab, d_gf)
+        C.advance(_blocks(G), TPB, regs, d_hands, d_gone, d_won, d_voids, d_tp, d_tc, tlen, d_leader, d_last,
+                  d_trumps, d_team, n, nteams, d_search, d_rules, track, d_vals, nsamp, G, d_tab, d_gf)
+
+
+def overlapped(starts, deal, play):
+    """For each batch start: deal(start) on a CPU thread while the GPU plays the batch before
+    (play(start, dealt)); yields (start, play's result) in order. Dealing (the CPU's share,
+    about 10% of a search survey) then hides behind the GPU's work. deal must release the
+    GIL (fast.deal_batch and deal_with_hand_batch are nogil)."""
+    from concurrent.futures import ThreadPoolExecutor
+    starts = list(starts)
+    if not starts:
+        return
+    with ThreadPoolExecutor(1) as ex:
+        nxt = ex.submit(deal, starts[0])
+        for i, a in enumerate(starts):
+            dealt = nxt.result()
+            if i + 1 < len(starts):
+                nxt = ex.submit(deal, starts[i + 1])
+            yield a, play(a, dealt)
+
+
 def survey(nhands, game, search, seed=1, batch=200_000, start=0):
     """GPU version of fast.survey for a fast.Game: same deals for the same seed, same
     columns (fast.S_*). start: global index of the first deal (seed + index picks each
-    deal, so a study can be split into pieces that reproduce the whole)."""
+    deal, so a study can be split into pieces that reproduce the whole). Each batch is
+    dealt while the GPU plays the one before."""
     from cardsim.pitch import fast
     r = game.rules
     out = np.zeros((nhands, 6), np.int64)
-    for a in range(0, nhands, batch):
-        cnt = min(batch, nhands - a)
-        hands, trumps, lo_team, dealt0 = fast.deal_batch(start + a, cnt, game.nplayers, r.deal_size, r.hand_size, r.refill,
-                                                 game.team, game.tab, game.gf, game.tw, game.tl, game.tx, seed)
+
+    def deal(a):
+        return fast.deal_batch(start + a, min(batch, nhands - a), game.nplayers, r.deal_size, r.hand_size, r.refill,
+                               game.team, game.tab, game.gf, game.tw, game.tl, game.tx, seed)
+
+    def play(a, dealt):
+        hands, trumps, lo_team, dealt0 = dealt
         sc, won = play_batch(hands, trumps, lo_team, game.team, game.rules_bt[game.team[0]], search, game.tab,
                              game.gf, seed=seed, return_won=True, game_offset=start + a)
+        return hands, trumps, dealt0, sc, won
+
+    for a, (hands, trumps, dealt0, sc, won) in overlapped(range(0, nhands, batch), deal, play):
+        cnt = len(hands)
         own = sc[:, game.team[0]]
         others = np.delete(won, game.team[0], axis=1)
         sweep = (others == 0).all(axis=1).astype(np.int64)

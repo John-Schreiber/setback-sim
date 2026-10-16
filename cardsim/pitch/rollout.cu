@@ -466,3 +466,200 @@ extern "C" __global__ void k_rollout_cpp(
         vals[((long long)g * nsamp + s) * MAXOPT + k] = (double)search_value(x, w, nteams, TEAM(x, p), last);
     }
 }
+
+// ------------------------------------------------------------------ the rest of a search step
+// The kernels around the play-outs, ported for the same reasons: k_init_states, k_sample,
+// k_count and k_advance mirror gpu.py's Numba kernels (and core.py's random streams and
+// sampler) exactly, so the games stay identical. The work counter has one slot per step,
+// zeroed once per batch, instead of a reset kernel before every step.
+
+__device__ __forceinline__ u64 splitmix64(u64 z) {
+    z += 0x9E3779B97F4A7C15ull;
+    z = (z ^ (z >> 30)) * 0xBF58476D1CE4E5B9ull;
+    z = (z ^ (z >> 27)) * 0x94D049BB133111EBull;
+    return z ^ (z >> 31);
+}
+
+// xoroshiro128+ step on stream i (core.rng_next)
+__device__ __forceinline__ u64 rng_next(u64* states, long long i) {
+    const u64 s0 = states[2 * i];
+    u64 s1 = states[2 * i + 1];
+    const u64 result = s0 + s1;
+    s1 ^= s0;
+    states[2 * i] = ((s0 << 24) | (s0 >> 40)) ^ s1 ^ (s1 << 16);
+    states[2 * i + 1] = (s1 << 37) | (s1 >> 27);
+    return result;
+}
+
+// integer in [0, m) from stream i, m < 65536: (r >> 11) % m from the 32-bit halves (core.rng_below)
+__device__ __forceinline__ int rng_below(u64* states, long long i, int m) {
+    const u64 x = rng_next(states, i) >> 11;
+    const unsigned mm = (unsigned)m;
+    const unsigned hi = (unsigned)(x >> 32) % mm, lo = (unsigned)(x & 0xFFFFFFFFull) % mm;
+    const unsigned p = 0xFFFFFFFFu % mm + 1u;  // 2^32 mod m (up to one m)
+    return (int)((hi * p + lo) % mm);
+}
+
+// position of the k-th (0-based) set bit of m: binary search on bit counts (core.select_bit)
+__device__ __forceinline__ int select_bit(u64 m, int k) {
+    int pos = 0;
+    u64 x = m;
+    for (int w = 32; w; w >>= 1) {
+        const u64 low = x & ((1ull << w) - 1);
+        const int c = popcount(low);
+        const bool up = k >= c;
+        k = up ? k - c : k;
+        x = up ? x >> w : low;
+        pos = up ? pos + w : pos;
+    }
+    return pos;
+}
+
+extern "C" __global__ void k_init_states_cpp(u64* states, long long count, long long seed, long long base) {
+    const long long i = blockIdx.x * (long long)blockDim.x + threadIdx.x;
+    if (i >= count) return;
+    const u64 z = splitmix64((u64)seed * 0x9E3779B97F4A7C15ull + (u64)(base + i));
+    const u64 s0 = splitmix64(z), s1 = splitmix64(s0);
+    states[2 * i] = s0;
+    states[2 * i + 1] = (s0 | s1) != 0 ? s1 : 1ull;
+}
+
+// One thread per (game, sample): guess where the cards the player to move can't see are
+// (core.sample_world), on random stream g*nsamp + s.
+extern "C" __global__ void k_sample_cpp(
+    const i64* __restrict__ hands, const i64* __restrict__ gone, const i64* __restrict__ voids,
+    const i64* __restrict__ tc, int tlen, const i64* __restrict__ leader, const i64* __restrict__ trumps,
+    const i64* __restrict__ team, int n, const i64* __restrict__ search, int nsamp, i64* __restrict__ worlds,
+    u64* __restrict__ rng, int ngames, const i64* __restrict__ tab, const i64* __restrict__ gf) {
+    const long long idx = blockIdx.x * (long long)blockDim.x + threadIdx.x;
+    const int g = (int)(idx / nsamp), s = (int)(idx % nsamp);
+    if (g >= ngames) return;
+    const int p = seat((int)leader[g], tlen, n);
+    if (s >= (int)search[team[p]]) return;
+    Ctx x{tab, gf, nullptr, (int)trumps[g], n, (int)gf[G_HAND], 0};
+    const u64 hand = (u64)hands[g * n + p];
+    int tcg[MAXP];
+    for (int q = 0; q < MAXP; q++) tcg[q] = q < n ? (int)tc[g * n + q] : 0;
+    if (popcount(options(x, hand, (u64)gone[g], tcg, tlen)) <= 1) return;
+    u64 seen = (u64)gone[g] | hand;
+    for (int i = 0; i < tlen; i++) seen |= bit(tcg[i]);
+    const u64 unseen = (u64)gf[G_DECK] & ~seen;
+    i64* out = worlds + ((long long)g * nsamp + s) * n;
+    out[p] = (i64)hand;
+    int order[MAXP], k = 0;
+    for (int nv = 4; nv >= 0; nv--)  // most constrained first
+        for (int q = 0; q < n; q++)
+            if (q != p && popcount((u64)voids[g * n + q]) == nv) order[k++] = q;
+    for (int attempt = 0; attempt < 31; attempt++) {
+        u64 rest = unseen;
+        bool ok = true;
+        for (int jj = 0; jj < n - 1; jj++) {
+            const int q = order[jj];
+            const int need = popcount((u64)hands[g * n + q]);
+            u64 allowed = rest;
+            if (attempt < 30) {  // the last attempt ignores voids (shouldn't be needed)
+                const u64 vq = (u64)voids[g * n + q];
+                for (int v = 0; v < 4; v++)
+                    if ((vq >> v) & 1) allowed &= ~ESM(x, v);
+            }
+            int avail = popcount(allowed);
+            if (avail < need) { ok = false; break; }
+            u64 m = 0;
+            for (int j = 0; j < need; j++) {
+                const u64 b = bit(select_bit(allowed, rng_below(rng, idx, avail)));
+                m |= b;
+                allowed &= ~b;
+                avail--;
+            }
+            out[q] = (i64)m;
+            rest &= ~m;
+        }
+        if (ok) return;
+    }
+}
+
+// Append (game, k) for each legal card of every game whose player searches this step to
+// the step's counter slot nwork[0] (zeroed beforehand); nothing for the rules or a forced play.
+extern "C" __global__ void k_count_cpp(
+    const i64* __restrict__ hands, const i64* __restrict__ gone, const i64* __restrict__ tc, int tlen,
+    const i64* __restrict__ leader, const i64* __restrict__ trumps, const i64* __restrict__ team, int n,
+    const i64* __restrict__ search, int* __restrict__ work_g, int* __restrict__ work_k, int* __restrict__ nwork,
+    int ngames, const i64* __restrict__ tab, const i64* __restrict__ gf) {
+    const int g = blockIdx.x * blockDim.x + threadIdx.x;
+    if (g >= ngames) return;
+    const int p = seat((int)leader[g], tlen, n);
+    if (search[team[p]] == 0) return;
+    Ctx x{tab, gf, nullptr, (int)trumps[g], n, (int)gf[G_HAND], 0};
+    int tcg[MAXP];
+    for (int q = 0; q < MAXP; q++) tcg[q] = q < n ? (int)tc[g * n + q] : 0;
+    const int no = popcount(options(x, (u64)hands[g * n + p], (u64)gone[g], tcg, tlen));
+    if (no <= 1) return;
+    const int at = atomicAdd(nwork, no);
+    for (int k = 0; k < no; k++) {
+        work_g[at + k] = g;
+        work_k[at + k] = k;
+    }
+}
+
+// One thread per game: pick the card (the search totals, or the rules) and play it (gpu.k_advance).
+extern "C" __global__ void k_advance_cpp(
+    i64* __restrict__ hands, i64* __restrict__ gone, i64* __restrict__ won, i64* __restrict__ voids,
+    i64* __restrict__ tp, i64* __restrict__ tc, int tlen, i64* __restrict__ leader, i64* __restrict__ last_team,
+    const i64* __restrict__ trumps, const i64* __restrict__ team, int n, int nteams, const i64* __restrict__ search,
+    const i64* __restrict__ rules, int track, const double* __restrict__ vals, int nsamp, int ngames,
+    const i64* __restrict__ tab, const i64* __restrict__ gf) {
+    const int g = blockIdx.x * blockDim.x + threadIdx.x;
+    if (g >= ngames) return;
+    unsigned teams = 0;
+    for (int q = 0; q < n; q++) teams |= (unsigned)team[q] << (2 * q);
+    Ctx x{tab, gf, rules, (int)trumps[g], n, (int)gf[G_HAND], teams};
+    const int p = seat((int)leader[g], tlen, n);
+    u64 hs[MAXP];
+    int vs[MAXP], tpl[MAXP], tcl[MAXP];
+    for (int q = 0; q < MAXP; q++) {
+        hs[q] = q < n ? (u64)hands[g * n + q] : 0;
+        vs[q] = q < n ? (int)voids[g * n + q] : 0;
+        tpl[q] = q < n ? (int)tp[g * n + q] : 0;
+        tcl[q] = q < n ? (int)tc[g * n + q] : 0;
+    }
+    const u64 hand = hs[p], gn = (u64)gone[g];
+    const u64 opts = options(x, hand, gn, tcl, tlen);
+    const int ns = (int)search[TEAM(x, p)];
+    int c;
+    if (ns > 0 && popcount(opts) > 1) {  // the card with the best search total (ties: lower power)
+        int best = -1, bp = 1 << 30, k = 0;
+        double bt = -1e300;
+        u64 m = opts;
+        while (m) {
+            const int cc = lowest(m);
+            m &= m - 1;
+            double tot = 0.0;
+            for (int s = 0; s < ns; s++) tot += vals[((long long)g * nsamp + s) * MAXOPT + k];
+            const int pw = POW(x, cc);
+            if (tot > bt || (tot == bt && pw < bp)) { best = cc; bt = tot; bp = pw; }
+            k++;
+        }
+        c = best;
+    } else {
+        c = heur_pick(x, p, hs, tpl, tcl, tlen, gn, vs);
+    }
+    hands[g * n + p] = (i64)(hand & ~bit(c));
+    if (track) {
+        note_void(x, vs, p, tcl, tlen, c);
+        voids[g * n + p] = vs[p];
+    }
+    tp[g * n + tlen] = p;
+    tc[g * n + tlen] = c;
+    tpl[tlen] = p;
+    tcl[tlen] = c;
+    if (tlen + 1 == n) {  // trick complete
+        int wp, wc;
+        trick_winner(x, tpl, tcl, n, wp, wc);
+        u64 cards = 0;
+        for (int i = 0; i < n; i++) cards |= bit(tcl[i]);
+        gone[g] = (i64)(gn | cards);
+        won[g * nteams + TEAM(x, wp)] |= (i64)cards;
+        leader[g] = wp;
+        last_team[g] = TEAM(x, wp);
+    }
+}

@@ -1,8 +1,9 @@
-"""The C++ play-out kernel (rollout.cu): compiled with NVRTC for this GPU, launched on the
-stream Numba uses, as a drop-in for gpu.k_rollout (gpu.configure(engine="cpp")).
+"""The CUDA C++ kernels (rollout.cu): compiled with NVRTC for this GPU and launched on the
+stream Numba uses, in place of gpu.py's Numba kernels when gpu.configure(engine="cpp").
 
-The kernel's constants (table fields, flags, rule columns, sizes) are generated from
-tables.py, core.py and gpu.py, so the C++ can't drift from the Python layout.
+The kernels' constants (table fields, flags, rule columns, sizes) are generated from
+tables.py, core.py and gpu.py, so the C++ can't drift from the Python layout. Arguments
+are Numba device arrays (passed as pointers) and Python ints.
 """
 import os
 
@@ -11,6 +12,7 @@ import numpy as np
 from cardsim.pitch import core, tables
 
 _SRC = os.path.join(os.path.dirname(os.path.abspath(__file__)), "rollout.cu")
+KERNELS = ("k_rollout_cpp", "k_sample_cpp", "k_count_cpp", "k_advance_cpp", "k_init_states_cpp")
 _cache = {}
 
 
@@ -26,8 +28,8 @@ def _header():
     return "".join(f"#define {k} {v}\n" for k, v in sorted(names.items()))
 
 
-def kernel(max_registers=None):
-    """The compiled k_rollout_cpp for the current device (cached per register cap)."""
+def kernels(max_registers=None):
+    """{name: compiled kernel} for the current device (cached per register cap)."""
     from cuda.core import Device, Program, ProgramOptions
     dev = Device()
     dev.set_current()
@@ -45,21 +47,59 @@ def kernel(max_registers=None):
         opts = ProgramOptions(name=name, arch=f"sm_{cc.major}{cc.minor}", std="c++17", lineinfo=True,
                               max_register_count=max_registers)
         mod = Program(src, code_type="c++", options=opts).compile("cubin")
-        _cache[key] = mod.get_kernel("k_rollout_cpp")
+        _cache[key] = {k: mod.get_kernel(k) for k in KERNELS}
     return _cache[key]
 
 
-def _ptr(a):
-    return np.uintp(a.__cuda_array_interface__["data"][0])
+def kernel(max_registers=None):
+    """The play-out kernel (for inspection: registers etc.)."""
+    return kernels(max_registers)["k_rollout_cpp"]
 
 
-def launch(grid, block, max_registers, hands, gone, won, voids, tp, tc, tlen, leader, trumps, team, n, nteams,
-           search, nsamp, rules, track, worlds, vals, work_g, work_k, nwork, tab, gf):
-    """Same arguments as gpu.k_rollout (Numba device arrays)."""
-    from cuda.core import LEGACY_DEFAULT_STREAM, LaunchConfig, launch as cu_launch
-    k = kernel(max_registers)
-    cu_launch(LEGACY_DEFAULT_STREAM, LaunchConfig(grid=int(grid), block=int(block)), k,
-              _ptr(hands), _ptr(gone), _ptr(won), _ptr(voids), _ptr(tp), _ptr(tc), np.int32(tlen), _ptr(leader),
-              _ptr(trumps), _ptr(team), np.int32(n), np.int32(nteams), _ptr(search), np.int32(nsamp), _ptr(rules),
-              np.int32(bool(track)), _ptr(worlds), _ptr(vals), _ptr(work_g), _ptr(work_k), _ptr(nwork), _ptr(tab),
-              _ptr(gf))
+def _arg(a):
+    """Device array -> pointer; bool/int -> int32 (int64 for the 64-bit parameters below)."""
+    if hasattr(a, "__cuda_array_interface__"):
+        return np.uintp(a.__cuda_array_interface__["data"][0])
+    if isinstance(a, np.integer) and a.dtype.itemsize == 8:
+        return a
+    return np.int32(int(a))
+
+
+def _launch(name, grid, block, max_registers, *args):
+    from cuda.core import LEGACY_DEFAULT_STREAM, LaunchConfig, launch
+    launch(LEGACY_DEFAULT_STREAM, LaunchConfig(grid=int(grid), block=int(block)),
+           kernels(max_registers)[name], *(_arg(a) for a in args))
+
+
+def slot(counter, i):
+    """Pointer to element i of an int32 device array (a step's work-counter slot)."""
+    return np.uintp(counter.__cuda_array_interface__["data"][0] + 4 * i)
+
+
+def rollout(grid, block, max_registers, hands, gone, won, voids, tp, tc, tlen, leader, trumps, team, n, nteams,
+            search, nsamp, rules, track, worlds, vals, work_g, work_k, nwork, tab, gf):
+    """Same arguments as gpu.k_rollout; nwork may be a slot() pointer."""
+    _launch("k_rollout_cpp", grid, block, max_registers, hands, gone, won, voids, tp, tc, tlen, leader, trumps, team,
+            n, nteams, search, nsamp, rules, track, worlds, vals, work_g, work_k, nwork, tab, gf)
+
+
+def init_states(grid, block, max_registers, states, count, seed, base):
+    _launch("k_init_states_cpp", grid, block, max_registers, states, np.int64(count), np.int64(seed), np.int64(base))
+
+
+def sample(grid, block, max_registers, hands, gone, voids, tc, tlen, leader, trumps, team, n, search, nsamp, worlds,
+           rng, ngames, tab, gf):
+    _launch("k_sample_cpp", grid, block, max_registers, hands, gone, voids, tc, tlen, leader, trumps, team, n, search,
+            nsamp, worlds, rng, ngames, tab, gf)
+
+
+def count(grid, block, max_registers, hands, gone, tc, tlen, leader, trumps, team, n, search, work_g, work_k, nwork,
+          ngames, tab, gf):
+    _launch("k_count_cpp", grid, block, max_registers, hands, gone, tc, tlen, leader, trumps, team, n, search, work_g,
+            work_k, nwork, ngames, tab, gf)
+
+
+def advance(grid, block, max_registers, hands, gone, won, voids, tp, tc, tlen, leader, last_team, trumps, team, n,
+            nteams, search, rules, track, vals, nsamp, ngames, tab, gf):
+    _launch("k_advance_cpp", grid, block, max_registers, hands, gone, won, voids, tp, tc, tlen, leader, last_team,
+            trumps, team, n, nteams, search, rules, track, vals, nsamp, ngames, tab, gf)

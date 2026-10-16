@@ -85,15 +85,27 @@ def run(kind, params, start, end, device):
         hands = keys[start:end]
         trumps = np.array([fast.pick_trump(np.int64(h), g.tab, g.tw, g.tl, g.tx) for h in hands], np.int64)
         ids = np.arange(start, end, dtype=np.int64)
-        dealt, lo = fast.deal_with_hand_batch(hands, trumps, ids, deals, g.nplayers, 6, 6, False, g.team,
-                                              g.tab, g.gf, seed)
-        tr = np.repeat(trumps, deals)
         rules = g.rules_bt[g.team[0]]
-        if device == "gpu":
+        if device == "gpu":  # deal the next batch of hand classes while the GPU plays one
             from cardsim.pitch import gpu
-            sc, won = gpu.play_batch(dealt, tr, lo, g.team, rules, search, g.tab, g.gf, seed=seed,
-                                     game_offset=start * deals, return_won=True)
+            per = max(1, 500_000 // deals)
+
+            def deal(a):
+                return fast.deal_with_hand_batch(hands[a:a + per], trumps[a:a + per], ids[a:a + per], deals,
+                                                 g.nplayers, 6, 6, False, g.team, g.tab, g.gf, seed)
+
+            def play(a, dealt):
+                return gpu.play_batch(dealt[0], np.repeat(trumps[a:a + per], deals), dealt[1], g.team, rules,
+                                      search, g.tab, g.gf, seed=seed, game_offset=(start + a) * deals,
+                                      return_won=True)
+
+            parts = [r for _, r in gpu.overlapped(range(0, count, per), deal, play)]
+            sc = np.concatenate([p[0] for p in parts])
+            won = np.concatenate([p[1] for p in parts])
         else:
+            dealt, lo = fast.deal_with_hand_batch(hands, trumps, ids, deals, g.nplayers, 6, 6, False, g.team,
+                                                  g.tab, g.gf, seed)
+            tr = np.repeat(trumps, deals)
             sc, won = fast.play_many(dealt, tr, g.team, g.nteams, rules, search, g.tab, g.gf, seed,
                                      start * deals)
         bt = g.team[0]
