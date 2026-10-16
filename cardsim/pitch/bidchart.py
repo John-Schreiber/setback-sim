@@ -105,7 +105,7 @@ def aggregate(rules, game, out):
     if rules.moon_bid:
         g["ev_moon"] = rules.moon_value * (2 * g.p_moon - 1)
     # the line that wins whole games (passline.LINES): highest bid with net >= the variant's line
-    from cardsim.pitch.passline import LINES
+    from cardsim.pitch.lines import LINES
     line = LINES.get((rules.name, game.nplayers))
     if line is not None:
         okn = g[[f"net{k}" for k in bids]].to_numpy() >= line
@@ -176,7 +176,7 @@ def strength_key(label, rules):
 
 
 def markdown(rules, nplayers, g, nhands, search):
-    from cardsim.pitch.passline import LINES
+    from cardsim.pitch.lines import LINES
     pass_label = "pass"
     cols = sorted(g.small.unique())
     line = LINES.get((rules.name, nplayers))

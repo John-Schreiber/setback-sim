@@ -64,7 +64,7 @@ def write(df, name, row_group_size=None):
 def presets():
     rows = []
     for name, r in PRESETS.items():
-        from cardsim.pitch.passline import LINES
+        from cardsim.pitch.lines import LINES
         rows.append(dict(preset=name, summary=describe(r), notes=NOTES[name], min_bid=r.min_bid, max_bid=r.max_bid,
                          line4=LINES.get((name, 4)), line6=LINES.get((name, 6)),
                          moon_bid=r.moon_bid, moon_value=r.moon_value, points_total=r.points_total,
@@ -141,11 +141,11 @@ REDUCED_ALIASES = {"roadhouse": "setback4_must_follow"}  # same single-hand play
 
 def reduced_tables(tables):
     """(hand_groups, group_stats, presets covered) from allhands-r_*_side_*.csv.gz, or None."""
-    from cardsim.hands import hand_classes
-    keys, _ = hand_classes()
     files = sorted(glob.glob(os.path.join(tables, "allhands-r_*_side_[46]p_d*_s*.csv.gz")))
     if not files:
         return None
+    from cardsim.hands import hand_classes  # needs numba: only when there are tables to build
+    keys, _ = hand_classes()
     hg, gs, seen = [], [], set()
     for fn in files:
         preset, n, deals, search = re.search(r"allhands-r_(.+)_side_(\d)p_d(\d+)_s(\d+)\.csv\.gz$",

@@ -8,7 +8,7 @@ name: Stats site
 on:
   push:
     branches: [main]
-    paths: ["site/**", "charts/**", "condensed_*.csv", "cardsim/pitch/rules.py", "cardsim/pitch/notes.py",
+    paths: ["site/**", "charts/**", "condensed_*.csv", "cardsim/pitch/rules.py", "cardsim/pitch/notes.py", "cardsim/pitch/lines.py",
             ".github/workflows/pages.yml"]
   workflow_dispatch:
 
