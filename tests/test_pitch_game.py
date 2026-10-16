@@ -35,7 +35,8 @@ def setup(preset, n):
 def run(rules, g, brain, take, n, strats, games, seed):
     strat = np.array([STRATS[s.replace("-ns", "")] for s in strats], np.int64)
     ns = np.array([int(s.endswith("-ns")) for s in strats], np.int64)
-    return play_games(games, n, g.team, strat, ns, rule_params(rules), take, brain.maxbid, brain.moon,
+    return play_games(games, n, g.team, strat, ns, rule_params(rules), take, np.stack([brain.maxbid] * g.nteams),
+                      np.stack([brain.moon] * g.nteams),
                       brain.honor_cards, g.rules_bt, g.tab, g.gf, g.tw, g.tl, g.tx, seed)
 
 

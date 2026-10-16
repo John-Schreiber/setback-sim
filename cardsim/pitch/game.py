@@ -36,9 +36,12 @@ N_COLS = 3 + 5 * MAXT
 
 
 class Brain:
-    """Bid lookup for one variant: key = honors bitmask * MAX_SMALL + small trumps."""
+    """Bid lookup for one variant: key = honors bitmask * MAX_SMALL + small trumps.
+    The highest bid worth making is the highest whose chart value (measure: "ev", expected
+    points, or "net", net of the opponents' points) is at least threshold; the defaults are
+    the charts' own line (max_bid: expected points >= 0)."""
 
-    def __init__(self, rules, nplayers):
+    def __init__(self, rules, nplayers, threshold=0.0, measure="ev"):
         df = pd.read_csv(os.path.join(OUT, f"{rules.name}_{nplayers}p.csv"), keep_default_na=False)
         hon = honor_list(rules)
         self.honor_cards = np.array([[f(t) for _, f in hon] for t in range(4)], np.int64)
@@ -47,10 +50,12 @@ class Brain:
         maxbid = np.zeros((1 << H, MAX_SMALL), np.int64)
         moon = np.zeros((1 << H, MAX_SMALL), np.int64)
         seen = np.zeros((1 << H, MAX_SMALL), bool)
+        bids = list(range(rules.min_bid, rules.max_bid + 1))
         for r in df.itertuples():
             m = sum(1 << names.index(x) for x in str(r.honors).split()) if r.honors else 0
             s = min(int(r.small), MAX_SMALL - 1)
-            maxbid[m, s] = r.max_bid
+            ok = [k for k in bids if getattr(r, f"{measure}{k}") >= threshold]
+            maxbid[m, s] = max(ok) if ok else 0
             moon[m, s] = int(rules.moon_bid > 0 and r.ev_moon > 0) if "ev_moon" in df else 0
             seen[m, s] = True
         # hands the survey never saw: take the best bid of any weaker hand that was seen
@@ -118,8 +123,8 @@ def play_games(ngames, nplayers, team, strat, nosteal, rp, take, maxbid, moon, h
                     continue
                 t = fast.pick_trump(hands[p], tab, tw, tl, tx)
                 key = hand_key(hands[p], t, honor_cards, tab)
-                mx = maxbid[key]
-                if moon_bid > 0 and moon[key] and high < moon_bid:
+                mx = maxbid[team[p], key]  # each team bids from its own table
+                if moon_bid > 0 and moon[team[p], key] and high < moon_bid:
                     high, bidder = moon_bid, p
                     continue
                 if high >= max_bid:
@@ -232,7 +237,8 @@ def main():
         sides = (sa,) + (sb,) * (g.nteams - 1)  # team A against B on every other team
         strat = np.array([STRATS[x.replace("-ns", "")] for x in sides], np.int64)
         ns = np.array([int(x.endswith("-ns")) for x in sides], np.int64)
-        o = play_games(a.games, a.players, g.team, strat, ns, rp, take, brain.maxbid, brain.moon,
+        o = play_games(a.games, a.players, g.team, strat, ns, rp, take, np.stack([brain.maxbid] * g.nteams),
+                       np.stack([brain.moon] * g.nteams),
                        brain.honor_cards, g.rules_bt, g.tab, g.gf, g.tw, g.tl, g.tx, a.seed)
         tot = o.sum(axis=0)
         win = (o[:, C_WIN] == 0).mean()
