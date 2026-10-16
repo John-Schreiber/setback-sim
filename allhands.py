@@ -18,8 +18,14 @@ bid's expected points minus opp) and p_all, the chance of taking all four points
 every trick (what an 11 or moon bid needs). The per-deal points of every team are
 kept in allhands_<P>p_d<deals>_s<search>_raw.npz.
 
+With --reduced side|trump (cluster only), hands that differ only in cards that barely matter
+are played as one group (cardsim/pitch/reduced.py: 14x or 51x fewer to play) and every hand
+gets its group's numbers; --deals then counts deals per group. Any 52-card, 6-card preset
+without a draw (--preset); written to allhands-r_<preset>_<level>_<P>p_d<deals>_s<search>.csv.gz.
+
     .venv/Scripts/python allhands.py -p 4 --deals 256
     .venv/Scripts/python allhands.py -p 6 --deals 112 --search 16 --cluster http://localhost:8700
+    .venv/Scripts/python allhands.py -p 4 --deals 1024 --search 16 --preset roadhouse --reduced side --cluster URL
 """
 import argparse
 import glob
@@ -123,9 +129,12 @@ def main():
     ap.add_argument("--limit", type=int, default=0, help="only the first N hand classes (testing)")
     ap.add_argument("--seed", type=int, default=20261013)
     ap.add_argument("--cluster", help="coordinator URL: play the table on the cluster (generalized engine)")
+    ap.add_argument("--preset", default="setback4", help="with --cluster: a 52-card, 6-card preset without a draw")
+    ap.add_argument("--reduced", choices=["side", "trump"],
+                    help="with --cluster: play merged groups of near-identical hands (cardsim/pitch/reduced.py)")
     a = ap.parse_args()
     if a.cluster:
-        from_cluster(a.cluster, a.players, a.deals, a.search, a.seed)
+        from_cluster(a.cluster, a.players, a.deals, a.search, a.seed, preset=a.preset, level=a.reduced)
         return
 
     team = np.array(sb.make_teams(a.players, 2), np.int64)
@@ -199,17 +208,23 @@ def table_stats(pts, sweep):
     return stats
 
 
-def from_cluster(url, players, deals, search, seed, poll=60):
+def from_cluster(url, players, deals, search, seed, poll=60, preset="setback4", level=None):
     import io
     from cardsim.dist.client import token_from_env
     from cardsim.dist.tasks import code_version, study_params
     from cardsim.dist.worker import Client
     c = Client(url, token_from_env())
-    name = f"allhands setback4 {players}p d{deals} s{search} seed {seed}"
+    kind = "allhands_reduced" if level else "allhands"
+    name = (f"allhands_reduced {preset} {level} {players}p d{deals} s{search} seed {seed}" if level else
+            f"allhands {preset} {players}p d{deals} s{search} seed {seed}")
     sid = {(s["name"], s["params"].get("code")): s["id"] for s in c.get("/studies")}.get((name, code_version()))
     if sid is None:
-        params = study_params("allhands", "setback4", players, search, seed, deals=deals)
-        sid = c.post("/studies", {"kind": "allhands", "params": params, "engine": "gpu" if search else "any",
+        extra = {"deals": deals}
+        if level:
+            from cardsim.pitch import PitchRules, fast as pfast, reduced
+            extra.update(level=level, items=reduced.groups(pfast.Game(PitchRules.preset(preset), players), level)[1])
+        params = study_params(kind, preset, players, search, seed, **extra)
+        sid = c.post("/studies", {"kind": kind, "params": params, "engine": "gpu" if search else "any",
                                   "name": name})["id"]
     print(f"{name}: study {sid} on {url}", flush=True)
     t0 = time.time()
@@ -221,6 +236,9 @@ def from_cluster(url, players, deals, search, seed, poll=60):
               f"{(time.time() - t0) / 60:.1f} min", flush=True)
         time.sleep(poll)
     z = np.load(io.BytesIO(c.get(f"/studies/{sid}/result")))
+    if level:
+        write_reduced(z, preset, level, players, deals, search)
+        return
     pts, sweep, trumps = z["pts"], z["sweep"], z["trump"]
     keys, counts = hand_classes()
     assert len(pts) == len(keys), (len(pts), len(keys))
@@ -234,6 +252,28 @@ def from_cluster(url, players, deals, search, seed, poll=60):
     fn = os.path.join(HERE, f"{tag}.csv.gz")
     df.to_csv(fn, index=False, float_format="%.4f")
     print(f"wrote {fn}  ({len(df):,} hands)", flush=True)
+
+
+def write_reduced(z, preset, level, players, deals, search):
+    """A reduced study's result -> the usual per-hand table, each hand with its group's numbers
+    (group: its group's index; deals: the group's deals, shared by every member)."""
+    from cardsim.pitch import PitchRules, fast as pfast, reduced
+    g = pfast.Game(PitchRules.preset(preset), players)
+    gid, ng, _, _, _, keys, trumps, counts = reduced.groups(g, level)
+    pts, sweep = z["pts"], z["sweep"]
+    assert len(pts) == ng, (len(pts), ng)
+    tag = f"allhands-r_{preset}_{level}_{players}p_d{deals}_s{search}"
+    np.savez_compressed(os.path.join(HERE, f"{tag}_raw.npz"), pts=pts, sweep=sweep, member=z["member"])
+    stats = table_stats(pts, sweep)
+    df = pd.DataFrame({k: v.astype(np.float32)[gid] for k, v in stats.items()})
+    df.insert(0, "hand", [hand_str(int(h)) for h in keys])
+    df.insert(1, "trump", ["SHDC"[t] for t in trumps])
+    df.insert(2, "weight", counts)
+    df.insert(3, "deals", deals)
+    df.insert(4, "group", gid)
+    fn = os.path.join(HERE, f"{tag}.csv.gz")
+    df.to_csv(fn, index=False, float_format="%.4f")
+    print(f"wrote {fn}  ({len(df):,} hands in {ng:,} groups)", flush=True)
 
 
 if __name__ == "__main__":

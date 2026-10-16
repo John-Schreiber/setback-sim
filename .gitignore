@@ -9,6 +9,7 @@ __pycache__/
 allhands_*/
 allhands_*.csv.gz
 allhands_*.npz
+allhands-r_*
 sweep_*.npz
 trumpdata_*.npz
 trump_theta_*.npy
