@@ -125,12 +125,20 @@ def finish(rules, game, g):
     # the line that wins whole games (passline.LINES): highest bid with net >= the variant's line
     from cardsim.pitch.lines import LINES
     line = LINES.get((rules.name, game.nplayers))
+    vs = []
     if line is not None:
         okn = g[[f"net{k}" for k in bids]].to_numpy() >= line
         g["bid_line"] = np.where(okn.any(axis=1), np.array(bids)[np.where(okn, np.arange(len(bids)), -1).max(axis=1)], 0)
+        # expected points against passing (0 = as good as passing): net minus the variant's line
+        for k in bids:
+            g[f"vs_pass{k}"] = g[f"net{k}"] - line
+            vs.append(f"vs_pass{k}")
+        if rules.moon_bid:
+            g["vs_pass_moon"] = g["net_moon"] - line
+            vs.append("vs_pass_moon")
     first = ["honors", "small", "hands", "avg", "opp", "p_moon"]
     g = g[first + [f"ev{k}" for k in bids] + ["max_bid"] + (["bid_line"] if line is not None else []) +
-          (["ev_moon"] if rules.moon_bid else []) + nets + ["source"]]
+          (["ev_moon"] if rules.moon_bid else []) + nets + vs + ["source"]]
     return fill_inferred(rules, g[g.hands >= 1].reset_index(drop=True))
 
 
@@ -285,9 +293,9 @@ def markdown(rules, nplayers, g, nhands, search):
     pass_label = "pass"
     cols = sorted(g.small.unique())
     line = LINES.get((rules.name, nplayers))
-    what = (f"Highest bid worth making by the line that wins the most whole games: net expected points "
-            f"(score change minus the opponents' points on the hand) >= {line:+g} (cardsim/pitch/passline.py; "
-            f"the .csv's max_bid is the older line, expected points >= 0)" if "bid_line" in g else
+    what = (f"Highest bid that beats passing: expected points against passing (vs_pass: the score change "
+            f"minus the opponents' points on the hand, minus what passing costs, {-line:g} here; "
+            f"cardsim/pitch/lines.py) >= 0. The .csv's max_bid is the older line, expected points >= 0" if "bid_line" in g else
             "Highest bid with expected points >= 0")
     src = (f"From every 6-card hand (reduced every-hand tables, search players)"
            if (g.get("source") == "every hand").any() else f"From {nhands:,} deals with search players")

@@ -106,7 +106,7 @@
     <div class="split">
       <div>
         <p class="muted">Each cell: how far to go in an auction with that trump holding, by the line that wins the
-          most whole games (net expected points of at least a per-variant threshold, found in whole-game simulations);
+          most whole games: bid while the bid beats passing (expected points against passing ≥ 0);
           a higher bid never scores more, so bid only as high as it takes to win. A bid in (brackets): too few hands
           seen, taken from the weaker holdings next to it.
           Rows: trump honors held; columns: other small trumps. * = shooting the moon also pays.
@@ -290,18 +290,20 @@ function showDetail(td) {
   $("detail").innerHTML = `
     <div class="muted">${esc(r.honors || "no honors")} + ${s} small trump${s === 1 ? "" : "s"} · ${r.hands.toLocaleString()} hands</div>
     <div class="big">${ceiling ? "up to " + ceiling : "pass"}</div>
-    <p class="muted">${line != null ? `The highest bid whose net is at least ${signed(line)}. Passing isn't free (an
-      opponent then takes the contract and gains on you), so this is where bidding beats passing; it is also the
-      line that wins the most whole games in this variant.` : "The highest bid with expected points ≥ 0."}${line != null && r.max_bid !== ceiling ?
+    <p class="muted">${line != null ? `The highest bid that beats passing. Passing isn't free: an opponent then takes
+      the contract and gains on you, which costs about ${(-line).toFixed(2)} points here, so "vs passing" is the bid's
+      value minus that, and 0 means as good as passing. This is also the line that wins the most whole games.` :
+      "The highest bid with expected points ≥ 0."}${line != null && r.max_bid !== ceiling ?
       ` (Expected points alone would say ${r.max_bid ? "up to " + r.max_bid : "pass"}.)` : ""}
       Takes ${r.avg.toFixed(2)} points on average; the opponents ${r.opp.toFixed(2)}.</p>
     <table><tr><th class="l">bid</th><th title="the bidding team's score change: points taken if made, minus the bid if set">expected</th>
-      <th title="expected, minus the points the opponents score on the hand">net of opp.</th></tr>
-    ${r.evs.map((x) => `<tr><td class="l">${x.bid}</td><td>${signed(x.ev)}</td><td>${signed(x.net)}</td></tr>`).join("")}
-    ${r.ev_moon != null ? `<tr><td class="l">moon</td><td>${signed(r.ev_moon)}</td><td>${signed(r.net_moon)}</td></tr>` : ""}
+      <th title="${line != null ? "the bid's value against passing: your score change minus the opponents' points, minus what passing costs; bid while it is at least 0" : "expected, minus the points the opponents score on the hand"}">${line != null ? "vs passing" : "net of opp."}</th></tr>
+    ${r.evs.map((x) => `<tr><td class="l">${x.bid}</td><td>${signed(x.ev)}</td><td>${signed(x.net - (line ?? 0))}</td></tr>`).join("")}
+    ${r.ev_moon != null ? `<tr><td class="l">moon</td><td>${signed(r.ev_moon)}</td><td>${signed(r.net_moon - (line ?? 0))}</td></tr>` : ""}
     </table>
     <p class="muted">Expected: your score change (points taken if made, minus the bid if set).
-      Net: that minus what the opponents score, i.e. how far the hand moves you against them.
+      ${line != null ? "Vs passing: that minus what the opponents score, compared with passing (0 = no better than passing)." :
+      "Net: that minus what the opponents score, i.e. how far the hand moves you against them."}
       A higher bid scores the same when made and only adds ways to be set, so its value is
       never higher: bid up only as far as it takes to win the auction.</p>`;
 }
@@ -376,18 +378,19 @@ async function lookup() {
     <div class="split"><div>
       <p>${esc(shown)} · ${esc(chosen)} · ${players}-handed · trump <b>${SYM[trump]}</b> · ${num(r.deals)} deals${present.hand_groups ?
         ` <span class="muted">(shared with hands that differ only in side-suit 2s to 9s, which play the same)</span>` : ""}</p>
-      <table><tr><th class="l">bid</th><th>makes it</th><th>expected points</th>${hasNet ? "<th>net of opp.</th>" : ""}</tr>
-      ${bids.map((x) => `<tr><td class="l">${x.b}</td><td>${(100 * x.p).toFixed(0)}%</td><td>${signed(x.ev)}</td>${hasNet ? `<td>${signed(x.net)}</td>` : ""}</tr>`).join("")}
+      <table><tr><th class="l">bid</th><th>makes it</th><th>expected points</th>${hasNet ? `<th>${useLine ? "vs passing" : "net of opp."}</th>` : ""}</tr>
+      ${bids.map((x) => `<tr><td class="l">${x.b}</td><td>${(100 * x.p).toFixed(0)}%</td><td>${signed(x.ev)}</td>${hasNet ? `<td>${signed(x.net - (useLine ? line : 0))}</td>` : ""}</tr>`).join("")}
       ${hasNet ? `<tr><td class="l">all 4 + every trick</td><td>${(100 * r.p_all).toFixed(1)}%</td><td></td><td></td></tr>` : ""}
       </table>
       <p class="muted" style="margin-top:10px">Average ${r.mean.toFixed(2)} of ${total} points taken${hasNet ? `; the opponents ${r.opp.toFixed(2)}` : ""}.
         "Makes it" = takes at least the bid; expected points count the points taken when made and minus the bid
-        when set${hasNet ? "; net subtracts what the opponents score on the hand" : ""}.${hasNet ? ` "All 4 + every trick" is
+        when set${useLine ? "; vs passing subtracts what the opponents score and compares with passing (0 = as good as passing)" :
+        hasNet ? "; net subtracts what the opponents score on the hand" : ""}.${hasNet ? ` "All 4 + every trick" is
         what an 11 or moon bid needs.` : ""}</p>
     </div><div class="card">
       <div class="muted">Go up to</div><div class="big">${ceiling || "pass"}</div>
-      <p class="muted">${useLine ? `The highest bid whose net is at least ${signed(line)}, the line that wins the most whole
-        games in ${esc(chosen)} ${players}-handed: how far to go to win the auction.` :
+      <p class="muted">${useLine ? `The highest bid that beats passing (vs passing ≥ 0) in ${esc(chosen)} ${players}-handed:
+        how far to go to win the auction.` :
         ceiling ? "The highest bid with expected points ≥ 0: how far to go to win the auction." : "No bid has expected points ≥ 0."}</p>
     </div></div>`;
 }

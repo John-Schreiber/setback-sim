@@ -1,6 +1,6 @@
 ## nine_five, 4-handed
 
-Highest bid worth making by the line that wins the most whole games: net expected points (score change minus the opponents' points on the hand) >= -1.6875 (cardsim/pitch/passline.py; the .csv's max_bid is the older line, expected points >= 0) (bids 9-18; 'pass' = none), by trump honors held (rows) and number of other small trumps (columns). From 4,000,000 deals with search players; (n) = too few hands seen (200), so taken from the weaker holdings next to it. A moon bid (19, worth 19) is marked * where it is also worth bidding.
+Highest bid that beats passing: expected points against passing (vs_pass: the score change minus the opponents' points on the hand, minus what passing costs, 1.6875 here; cardsim/pitch/lines.py) >= 0. The .csv's max_bid is the older line, expected points >= 0 (bids 9-18; 'pass' = none), by trump honors held (rows) and number of other small trumps (columns). From 4,000,000 deals with search players; (n) = too few hands seen (200), so taken from the weaker holdings next to it. A moon bid (19, worth 19) is marked * where it is also worth bidding.
 
 | trump honors | +0 | +1 | +2 | +3 | +4 | +5 |
 |---|---|---|---|---|---|---|

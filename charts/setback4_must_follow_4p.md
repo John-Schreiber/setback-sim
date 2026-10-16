@@ -1,6 +1,6 @@
 ## setback4_must_follow, 4-handed
 
-Highest bid worth making by the line that wins the most whole games: net expected points (score change minus the opponents' points on the hand) >= -0.75 (cardsim/pitch/passline.py; the .csv's max_bid is the older line, expected points >= 0) (bids 2-4; 'pass' = none), by trump honors held (rows) and number of other small trumps (columns). From every 6-card hand (reduced every-hand tables, search players); (n) = too few hands seen (200), so taken from the weaker holdings next to it.
+Highest bid that beats passing: expected points against passing (vs_pass: the score change minus the opponents' points on the hand, minus what passing costs, 0.75 here; cardsim/pitch/lines.py) >= 0. The .csv's max_bid is the older line, expected points >= 0 (bids 2-4; 'pass' = none), by trump honors held (rows) and number of other small trumps (columns). From every 6-card hand (reduced every-hand tables, search players); (n) = too few hands seen (200), so taken from the weaker holdings next to it.
 
 | trump honors | +0 | +1 | +2 | +3 | +4 | +5 | +6 |
 |---|---|---|---|---|---|---|---|
