@@ -115,10 +115,12 @@
   </section>
 
   <section class="panel" id="tab-hand" hidden>
-    <p class="muted">4-point Setback (High, Low to whoever captures it, Jack, Game; bids 2–4). Every distinct
-      6-card hand was played as bidder against hundreds of random deals. Type six cards like
-      <code>AS JS 2S KH 9D 4C</code> (10 = <code>10</code> or <code>T</code>; suits S H D C or ♠ ♥ ♦ ♣).</p>
+    <p class="muted" id="hand-intro">Every distinct 6-card hand was played as bidder against hundreds of random
+      deals. Type six cards like <code>AS JS 2S KH 9D 4C</code> (10 = <code>10</code> or <code>T</code>; suits
+      S H D C or ♠ ♥ ♦ ♣).</p>
+    <p class="muted" id="hand-rules"></p>
     <div class="row">
+      <label id="hpreset-label" hidden>House rules <select id="hpreset"></select></label>
       <label>Your hand <input type="text" id="cards" value="AS JS 2S KH 9D 4C" size="24"></label>
       <label>Players <select id="hplayers"><option value="4">4</option><option value="6">6</option></select></label>
       <label>Other players <select id="hsearch"><option value="16">look ahead (search)</option><option value="0">rule-based</option></select></label>
@@ -129,8 +131,10 @@
 
   <section class="panel" id="tab-sql" hidden>
     <p class="muted">Tables: <code>presets</code>, <code>charts</code>, <code>chart_ev</code> (one row per bid),
-      <code>condensed</code>, and <code>allhands</code> (3.85 million rows: every hand, 4- and 6-handed, rule-based
-      and search players; a query reads only the parts it needs). Ctrl+Enter runs.</p>
+      <code>condensed</code>, and <code>allhands</code> (every hand by preset, 4- and 6-handed, rule-based and
+      search players; a query reads only the parts it needs; where present it is a view joining
+      <code>hand_groups</code>, each hand's trump and group, with <code>group_stats</code>, each group's
+      numbers). Ctrl+Enter runs.</p>
     <div class="row" id="examples"></div>
     <textarea id="sql" spellcheck="false"></textarea>
     <div class="row" style="margin-top:8px"><button class="go" id="run">Run</button><span class="muted" id="sqlinfo"></span></div>
@@ -173,19 +177,26 @@ async function start() {
   // read by range; it is published as .zip because GitHub Pages gzips other file types and
   // then serves ranges of the gzipped copy (site/build.py).
   const small = TABLES.filter((t) => t !== "allhands");
+  const ranged = present.hand_groups ? ["hand_groups", "group_stats"] : present.allhands ? ["allhands"] : [];
   const bufs = await Promise.all(small.map(async (t) => {
     const r = await fetch(`data/${t}.parquet`);
     if (!r.ok) throw new Error(`data/${t}.parquet: ${r.status}`);
     return new Uint8Array(await r.arrayBuffer());
   }));
   for (let i = 0; i < small.length; i++) await db.registerFileBuffer(`${small[i]}.parquet`, bufs[i]);
-  if (present.allhands) {
-    const url = new URL("data/allhands.parquet.zip", location.href).href;
-    await db.registerFileURL("allhands.parquet", url, duckdb.DuckDBDataProtocol.HTTP, true);
+  for (const t of ranged) {
+    const url = new URL(`data/${t}.parquet.zip`, location.href).href;
+    await db.registerFileURL(`${t}.parquet`, url, duckdb.DuckDBDataProtocol.HTTP, true);
   }
-  for (const t of TABLES) {
-    if (t === "allhands" && !present.allhands) continue;
-    await conn.query(`CREATE VIEW ${t} AS SELECT * FROM '${t}.parquet'`);
+  for (const t of small) await conn.query(`CREATE VIEW ${t} AS SELECT * FROM '${t}.parquet'`);
+  if (present.hand_groups) {
+    await conn.query(`CREATE VIEW hand_groups AS SELECT * FROM 'hand_groups.parquet'`);
+    await conn.query(`CREATE VIEW group_stats AS SELECT * FROM 'group_stats.parquet'`);
+    await conn.query(`CREATE VIEW allhands AS SELECT h.preset, h.players, s.search, h.key, h.trump, h.weight,
+      h."group", s.* EXCLUDE (preset, players, search, "group")
+      FROM hand_groups h JOIN group_stats s ON s.preset = h.preset AND s.players = h.players AND s."group" = h."group"`);
+  } else if (present.allhands) {
+    await conn.query(`CREATE VIEW allhands AS SELECT 'setback4' AS preset, * FROM 'allhands.parquet'`);
   }
   return present;
 }
@@ -316,10 +327,19 @@ async function lookup() {
   try { cards = parseHand($("cards").value); } catch (e) { out.innerHTML = `<p class="err">${esc(e.message)}</p>`; return; }
   const { key, order } = canonical(cards);
   const players = +$("hplayers").value, search = +$("hsearch").value;
-  const rows = await q(`SELECT * FROM allhands
-                        WHERE players = ${players} AND search = ${search} AND key = ${key}`);
+  const chosen = $("hpreset").value || "setback4", table = handTable(chosen);
+  let rows;
+  if (present.hand_groups) {  // the hand's group, then the group's numbers: two small range reads
+    const h = await q(`SELECT trump, weight, "group" FROM hand_groups
+                       WHERE preset = ${sqlStr(table)} AND players = ${players} AND key = ${key}`);
+    rows = h.length ? await q(`SELECT *, ${sqlStr(h[0].trump)} AS trump FROM group_stats WHERE preset = ${sqlStr(table)}
+                               AND players = ${players} AND search = ${search} AND "group" = ${num(h[0].group)}`) : [];
+  } else {
+    rows = await q(`SELECT * FROM allhands WHERE players = ${players} AND search = ${search} AND key = ${key}`);
+  }
   if (!rows.length) { out.innerHTML = `<p class="err">Hand not found.</p>`; return; }
   const r = rows[0];
+  const total = presets[chosen] ? presets[chosen].points_total : 4;
   const trump = order[SUITS.indexOf(r.trump)];
   const bids = [2, 3, 4].map((b) => ({ b, p: r[`p${b}`], ev: r[`ev${b}`], net: r[`net${b}`] }));
   const hasNet = r.opp != null;
@@ -329,12 +349,13 @@ async function lookup() {
     .map(([rk, s]) => (RANKS[rk] === "T" ? "10" : RANKS[rk]) + SYM[s]).join(" ");
   out.innerHTML = `
     <div class="split"><div>
-      <p>${esc(shown)} · ${players}-handed · trump <b>${SYM[trump]}</b> · ${num(r.deals)} deals</p>
+      <p>${esc(shown)} · ${esc(chosen)} · ${players}-handed · trump <b>${SYM[trump]}</b> · ${num(r.deals)} deals${present.hand_groups ?
+        ` <span class="muted">(shared with hands that differ only in side-suit 2s to 9s, which play the same)</span>` : ""}</p>
       <table><tr><th class="l">bid</th><th>makes it</th><th>expected points</th>${hasNet ? "<th>net of opp.</th>" : ""}</tr>
       ${bids.map((x) => `<tr><td class="l">${x.b}</td><td>${(100 * x.p).toFixed(0)}%</td><td>${signed(x.ev)}</td>${hasNet ? `<td>${signed(x.net)}</td>` : ""}</tr>`).join("")}
       ${hasNet ? `<tr><td class="l">all 4 + every trick</td><td>${(100 * r.p_all).toFixed(1)}%</td><td></td><td></td></tr>` : ""}
       </table>
-      <p class="muted" style="margin-top:10px">Average ${r.mean.toFixed(2)} of 4 points taken${hasNet ? `; the opponents ${r.opp.toFixed(2)}` : ""}.
+      <p class="muted" style="margin-top:10px">Average ${r.mean.toFixed(2)} of ${total} points taken${hasNet ? `; the opponents ${r.opp.toFixed(2)}` : ""}.
         "Makes it" = takes at least the bid; expected points count the points taken when made and minus the bid
         when set${hasNet ? "; net subtracts what the opponents score on the hand" : ""}.${hasNet ? ` "All 4 + every trick" is
         what an 11 or moon bid needs.` : ""}</p>
@@ -343,6 +364,16 @@ async function lookup() {
       <p class="muted">${ceiling ? "The highest bid with expected points ≥ 0: how far to go to win the auction." : "No bid has expected points ≥ 0."}</p>
     </div></div>`;
 }
+// presets with an every-hand table, and those that share one (same single-hand play)
+let present = {};
+const handTable = (p) => (present.allhands_aliases || {})[p] || p;
+function handRules() {
+  const p = $("hpreset").value || "setback4", info = presets[p];
+  const shared = handTable(p) !== p ? ` Its table is ${esc(handTable(p))}'s: a single hand plays the same, only the
+    auction and the game around it differ.` : "";
+  $("hand-rules").innerHTML = info ? `<b>${esc(p)}</b>: ${esc(info.notes)}${shared}` : "";
+}
+$("hpreset").addEventListener("change", () => { handRules(); $("hand-out").innerHTML = ""; });
 $("lookup").addEventListener("click", lookup);
 $("cards").addEventListener("keydown", (e) => { if (e.key === "Enter") lookup(); });
 
@@ -355,13 +386,13 @@ FROM charts GROUP BY ALL ORDER BY preset, players;`,
 FROM chart_ev
 WHERE preset = 'setback4' AND players = 4 AND bid = 3 AND ev >= 0 AND hands >= 1000
 ORDER BY ev LIMIT 20;`,
-  "Share of deals worth a 4-bid": `SELECT players, count(*) AS distinct_hands,
+  "Share of deals worth a 4-bid": `SELECT preset, players, count(*) AS distinct_hands,
        round(100 * sum(weight * (ev4 >= 0)::INT) / sum(weight), 2) AS pct_of_deals
-FROM allhands WHERE search = 16 GROUP BY players ORDER BY players;`,
-  "Search vs rule-based players": `SELECT a.players, round(avg(s.mean - a.mean), 4) AS search_minus_rules,
+FROM allhands WHERE search = 16 GROUP BY preset, players ORDER BY preset, players;`,
+  "Search vs rule-based players": `SELECT a.preset, a.players, round(avg(s.mean - a.mean), 4) AS search_minus_rules,
        round(avg(abs(s.ev2 - a.ev2)), 3) AS mean_abs_ev2_gap
-FROM allhands a JOIN allhands s USING (players, key)
-WHERE a.search = 0 AND s.search = 16 GROUP BY a.players;`,
+FROM allhands a JOIN allhands s USING (preset, players, key)
+WHERE a.search = 0 AND s.search = 16 GROUP BY a.preset, a.players ORDER BY 1, 2;`,
 };
 for (const [name, sql] of Object.entries(EXAMPLES)) {
   const b = document.createElement("button");
@@ -389,13 +420,22 @@ $("sql").addEventListener("keydown", (e) => { if (e.key === "Enter" && (e.ctrlKe
 
 // ---------------------------------------------------------------- start
 try {
-  const present = await start();
+  present = await start();
   for (const p of await q("SELECT * FROM presets")) presets[p.preset] = Object.fromEntries(Object.entries(p).map(([k, v]) => [k, num(v)]));
   $("preset").innerHTML = Object.keys(presets).map((p) => `<option>${esc(p)}</option>`).join("");
   $("preset").addEventListener("change", drawChart);
   $("players").addEventListener("change", drawChart);
   await drawChart();
-  if (!present.allhands) {
+  if (present.hand_groups) {
+    const have = [...present.allhands_presets, ...Object.keys(present.allhands_aliases || {})];
+    const ordered = Object.keys(presets).filter((p) => have.includes(p));
+    $("hpreset").innerHTML = ordered.map((p) => `<option>${esc(p)}</option>`).join("");
+    $("hpreset-label").hidden = false;
+  } else {
+    $("hpreset").innerHTML = `<option>setback4</option>`;
+  }
+  handRules();
+  if (!present.hand_groups && !present.allhands) {
     $("lookup").disabled = true;
     $("hand-out").innerHTML = `<p class="muted">The every-hand table isn't included in this build.</p>`;
   }

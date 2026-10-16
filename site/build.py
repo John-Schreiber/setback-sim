@@ -10,11 +10,17 @@ looked up without downloading them. Output goes to site/_build/ (index.html and 
   chart_ev.parquet   the same groups, one row per bid: expected points of that bid (ev) and
                      net of the opponents' points on the hand (net)
   condensed.parquet  4-point Setback, from the every-hand tables (condensed_*.csv)
+  hand_groups.parquet.zip, group_stats.parquet.zip
+                     every distinct 6-card hand as bidder, for each preset with reduced
+                     every-hand tables (allhands-r_<preset>_side_<P>p_d<deals>_s<S>.csv.gz,
+                     allhands.py --reduced): hand_groups maps each hand (preset, players, key)
+                     to its trump and group; group_stats has each group's numbers (preset,
+                     players, search, group). Copied as is if DIR already has both .parquet
+                     files (as a release would carry them).
   allhands.parquet.zip
-                     every distinct 6-card hand, 4-point Setback, as bidder. Built from the
-                     release tables allhands_*.csv.gz, or copied as is if DIR already has an
-                     allhands.parquet (the release carries one, so the site build skips the
-                     slow part); skipped if neither is present
+                     the older single table: every distinct 6-card hand, 4-point Setback
+                     (release tables allhands_*.csv.gz, or a prebuilt allhands.parquet), used
+                     when there are no reduced tables
 
     uv run --extra site python site/build.py [--tables DIR]
 """
@@ -127,6 +133,44 @@ def allhands(tables):
     return df
 
 
+REDUCED_ALIASES = {"roadhouse": "setback4_must_follow"}  # same single-hand play: one table serves both
+
+
+def reduced_tables(tables):
+    """(hand_groups, group_stats, presets covered) from allhands-r_*_side_*.csv.gz, or None."""
+    from cardsim.hands import hand_classes
+    keys, _ = hand_classes()
+    files = sorted(glob.glob(os.path.join(tables, "allhands-r_*_side_[46]p_d*_s*.csv.gz")))
+    if not files:
+        return None
+    hg, gs, seen = [], [], set()
+    for fn in files:
+        preset, n, deals, search = re.search(r"allhands-r_(.+)_side_(\d)p_d(\d+)_s(\d+)\.csv\.gz$",
+                                             os.path.basename(fn)).groups()
+        n, search = int(n), int(search)
+        if preset in REDUCED_ALIASES:  # served by the table it shares (the page maps it)
+            continue
+        df = pd.read_csv(fn)
+        assert len(df) == len(keys)
+        if (preset, n) not in seen:  # the grouping depends on preset and players, not on search
+            seen.add((preset, n))
+            hg.append(pd.DataFrame({"preset": preset, "players": n, "key": keys, "trump": df["trump"],
+                                    "weight": df["weight"].astype("int32"), "group": df["group"].astype("int32")}))
+        g = df.drop(columns=["hand", "trump", "weight"]).drop_duplicates("group").sort_values("group")
+        g.insert(0, "search", search)
+        g.insert(0, "players", n)
+        g.insert(0, "preset", preset)
+        gs.append(g)
+        print(f"  {os.path.basename(fn)}: {len(g):,} groups", flush=True)
+    hg = pd.concat(hg, ignore_index=True).sort_values(["preset", "players", "key"])
+    gs = pd.concat(gs, ignore_index=True).sort_values(["preset", "players", "search", "group"])
+    for d in (hg, gs):
+        d["players"] = d["players"].astype("int8")
+    gs["search"] = gs["search"].astype("int8")
+    gs["deals"] = gs["deals"].astype("int32")
+    return hg, gs, sorted({p for p, _ in seen})
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--tables", default=ROOT, help="folder with the allhands_*.csv.gz release tables")
@@ -143,19 +187,37 @@ def main():
              "charts": write(wide, "charts.parquet"),
              "chart_ev": write(long, "chart_ev.parquet"),
              "condensed": write(condensed(), "condensed.parquet")}
+    pre_hg, pre_gs = (os.path.join(a.tables, f) for f in ("hand_groups.parquet", "group_stats.parquet"))
+    red = None if os.path.exists(pre_hg) and os.path.exists(pre_gs) else reduced_tables(a.tables)
     pre = os.path.join(a.tables, "allhands.parquet")
-    if os.path.exists(pre):
+    if os.path.exists(pre_hg) and os.path.exists(pre_gs):
+        shutil.copy(pre_hg, os.path.join(OUT, "data", "hand_groups.parquet.zip"))
+        shutil.copy(pre_gs, os.path.join(OUT, "data", "group_stats.parquet.zip"))
+        sizes["hand_groups"] = pq.ParquetFile(pre_hg).metadata.num_rows
+        sizes["group_stats"] = pq.ParquetFile(pre_gs).metadata.num_rows
+        sizes["allhands_presets"] = sorted(set(pq.read_table(pre_hg, columns=["preset"]).column(0).to_pylist()))
+    elif red is not None:
+        hg, gs, covered = red
+        sizes["hand_groups"] = write(hg, "hand_groups.parquet.zip", row_group_size=16_384)
+        sizes["group_stats"] = write(gs, "group_stats.parquet.zip", row_group_size=4_096)
+        sizes["allhands_presets"] = covered
+    elif os.path.exists(pre):
         shutil.copy(pre, os.path.join(OUT, "data", ALLHANDS))
         sizes["allhands"] = pq.ParquetFile(pre).metadata.num_rows
     else:
         ah = allhands(a.tables)
         if ah is not None:
             sizes["allhands"] = write(ah, ALLHANDS, row_group_size=16_384)
+    if "allhands_presets" in sizes:
+        sizes["allhands_aliases"] = {k: v for k, v in REDUCED_ALIASES.items() if v in sizes["allhands_presets"]}
     with open(os.path.join(OUT, "data", "tables.json"), "w") as f:
         json.dump(sizes, f)
+    files = {"allhands": ALLHANDS, "hand_groups": "hand_groups.parquet.zip", "group_stats": "group_stats.parquet.zip"}
     for name, rows in sizes.items():
-        mb = os.path.getsize(os.path.join(OUT, "data", ALLHANDS if name == "allhands" else f"{name}.parquet")) / 1e6
-        print(f"{name}.parquet: {rows:,} rows, {mb:.1f} MB")
+        if not isinstance(rows, int):
+            continue
+        mb = os.path.getsize(os.path.join(OUT, "data", files.get(name, f"{name}.parquet"))) / 1e6
+        print(f"{name}: {rows:,} rows, {mb:.1f} MB")
 
 
 if __name__ == "__main__":

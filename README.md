@@ -67,6 +67,13 @@ leads first and that card sets trump; you may always trump in. 4-handed is two t
   built on the cluster (`--cluster`), the opponents' points, each bid's net expected points and
   the chance of taking all four points and every trick. `condense.py` turns those into the
   condensed charts.
+- **Fewer hands to play.** The tables also show which cards barely matter to the bidder: a
+  side-suit 2 to 9 changes the average by under 0.002 points, a trump 4 to 9 by under 0.015.
+  So `allhands.py --reduced side` plays hands that differ only in side-suit 2s-9s as one group
+  (68,677 groups 4-handed instead of 962,988; each deal plays a member drawn by how common it
+  is), checked against the full tables to differ by nothing beyond sampling noise. At a third
+  of the cost a group gets four times the deals, so these tables are also more precise; they
+  cover setback4, must-follow and low-dealt (Roadhouse plays a hand exactly as must-follow).
 
 ## Running it
 
