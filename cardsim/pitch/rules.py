@@ -51,6 +51,7 @@ class PitchRules:
     target: int = 11
     bidder_out_first: bool = True
     win_by: int = 1
+    bid_to_win: bool = False     # only the bidding team can win (go out) on a hand
     no_junk: bool = False        # only the bidding side scores
     exact_bonus: int = 0         # Maryland Jack: +1 for making exactly the bid
     backdoor: int = 0            # e.g. -11: a side at or below this loses (0 = off)
@@ -116,4 +117,6 @@ def describe(rules):
     play = "may trump in" if rules.may_trump else "must follow suit"
     bids = f"bids {rules.min_bid}-{rules.max_bid}" + (f", moon {rules.moon_bid} = {rules.moon_value}"
                                                       if rules.moon_bid else "")
-    return f"{deal}; {play}; {', '.join(pts)} ({rules.points_total} total); {bids}; game to {rules.target}"
+    out = f" (win by {rules.win_by})" if rules.win_by > 1 else ""
+    out += "; you must bid to go out" if rules.bid_to_win else ""
+    return f"{deal}; {play}; {', '.join(pts)} ({rules.points_total} total); {bids}; game to {rules.target}{out}"

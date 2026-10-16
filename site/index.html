@@ -290,8 +290,9 @@ function showDetail(td) {
   $("detail").innerHTML = `
     <div class="muted">${esc(r.honors || "no honors")} + ${s} small trump${s === 1 ? "" : "s"} · ${r.hands.toLocaleString()} hands</div>
     <div class="big">${ceiling ? "up to " + ceiling : "pass"}</div>
-    <p class="muted">${line != null ? `The highest bid whose net is at least ${signed(line)}: the line that wins the most
-      whole games in this variant.` : "The highest bid with expected points ≥ 0."}${line != null && r.max_bid !== ceiling ?
+    <p class="muted">${line != null ? `The highest bid whose net is at least ${signed(line)}. Passing isn't free (an
+      opponent then takes the contract and gains on you), so this is where bidding beats passing; it is also the
+      line that wins the most whole games in this variant.` : "The highest bid with expected points ≥ 0."}${line != null && r.max_bid !== ceiling ?
       ` (Expected points alone would say ${r.max_bid ? "up to " + r.max_bid : "pass"}.)` : ""}
       Takes ${r.avg.toFixed(2)} points on average; the opponents ${r.opp.toFixed(2)}.</p>
     <table><tr><th class="l">bid</th><th title="the bidding team's score change: points taken if made, minus the bid if set">expected</th>

@@ -11,6 +11,14 @@ site build (pandas and pyarrow only) can read it."""
 # (gamecache, 16 worlds, 200,000 games): stable for all but two, which moved to the look-ahead
 # fixed point (draw_pitch 6-handed, nine_five). With look-ahead players today's line wins 41%
 # (ten-point), 42% (draw pitch) and 38% (nine-five) of 4-handed games against these lines.
+#
+# Why the threshold is below zero: passing isn't worth zero. Measured directly (passvalue.py:
+# at every auction decision in 200,000 look-ahead games of setback4 4-handed, both choices
+# scored on the same deal), passing costs about 0.2-0.3 net points per hand, because an
+# opponent then takes the contract and gains on you. The grounded rule is "bid when bidding
+# beats passing" (bid - pass >= 0); it agrees with the line on 97% of decisions and plays
+# even with it in whole games (49.7% +/- 0.1%). The line is that rule in the charts' units
+# (net measured against zero rather than against passing).
 LINES = {
     ("setback4", 4): -0.625, ("setback4", 6): -1.75,
     ("setback4_lowdealt", 4): -0.625, ("setback4_lowdealt", 6): -1.625,

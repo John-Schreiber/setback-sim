@@ -35,9 +35,13 @@ older line's (`max_bid`, expected points >= 0).
 - **A higher bid is never worth more on the same hand.** The play doesn't depend on the bid, so
   a higher bid scores the same when made and only adds ways to be set; its only use is winning
   the auction.
-- **Bid less than "expected points >= 0" says, and count the opponents.** In whole games
-  (`cardsim/pitch/passline.py`), the line that wins most is a threshold on *net* expected points:
-  setback4 4-handed, bid only when net >= -0.625 (6-handed: -1.75). It is stable (with every team
+- **Bid when bidding beats passing, and count the opponents.** Passing isn't free: an opponent
+  then takes the contract and gains on you, about 0.2-0.3 net points per hand in setback4
+  (measured on the same deals both ways, `cardsim/pitch/passvalue.py`). So the right test is
+  your net expected points (score change minus the opponents') against that cost, which in the
+  charts' units is a threshold below zero: setback4 4-handed, bid when net >= -0.625 (6-handed:
+  -1.75). Found in whole games (`cardsim/pitch/passline.py`), it agrees with the measured
+  bid-versus-pass rule on 97% of decisions. It is stable (with every team
   on it, no other line does better), and against it the older line wins 48.8% of 4-handed games.
   In ten-point, draw pitch and nine-five the older line was far too aggressive: against the new
   lines it wins only 38-42% of 4-handed games with look-ahead players. Every variant's line is

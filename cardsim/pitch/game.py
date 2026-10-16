@@ -180,28 +180,7 @@ def play_games(ngames, nplayers, team, strat, nosteal, rp, take, maxbid, moon, h
             dealer = (dealer + 1) % nplayers
             if winner >= 0:
                 break
-            # winning: reach the target, ahead of everyone by win_by; the bidder first
-            best, bs = -1, -(1 << 60)
-            for k2 in range(nteams):
-                ahead = True
-                for k3 in range(nteams):
-                    if k3 != k2 and score[k2] - score[k3] < win_by:
-                        ahead = False
-                if score[k2] >= target and ahead:
-                    if bidder_out and k2 == bt:
-                        best, bs = k2, 1 << 60
-                    elif score[k2] > bs:
-                        best, bs = k2, score[k2]
-            if best >= 0:
-                winner = best
-            elif backdoor < 0:
-                for k2 in range(nteams):
-                    if score[k2] <= backdoor:
-                        top, ts = -1, -(1 << 60)
-                        for k3 in range(nteams):
-                            if k3 != k2 and score[k3] > ts:
-                                top, ts = k3, score[k3]
-                        winner = top
+            winner = game_winner(score, bt, rp, nteams)
         out[gi, C_WIN] = winner
         out[gi, C_HANDS] = nh
         for k2 in range(nteams):
@@ -212,7 +191,41 @@ def play_games(ngames, nplayers, team, strat, nosteal, rp, take, maxbid, moon, h
 def rule_params(r):
     return np.array([r.deal_size, r.hand_size, int(r.refill), r.min_bid, r.max_bid, r.moon_bid, r.moon_value,
                      int(r.moon_wins_game), int(r.dealer_stuck), r.target, r.win_by, int(r.bidder_out_first),
-                     int(r.no_junk), r.exact_bonus, r.backdoor, r.points_total], np.int64)
+                     int(r.no_junk), r.exact_bonus, r.backdoor, r.points_total, int(r.bid_to_win)], np.int64)
+
+
+@njit(cache=True)
+def game_winner(score, bt, rp, nteams):
+    """After a hand bid by team bt: the team that has won, or -1. A team wins on reaching the
+    target ahead of every other team by win_by (the bidder first if several do; with
+    bid_to_win only the bidder can). A team at or below a (negative) backdoor score loses:
+    the leader of the others wins."""
+    target, win_by, bidder_out, backdoor, bid_to_win = rp[9], rp[10], rp[11], rp[14], rp[16]
+    best, bs = -1, -(1 << 60)
+    for k2 in range(nteams):
+        if bid_to_win and k2 != bt:
+            continue
+        ahead = True
+        for k3 in range(nteams):
+            if k3 != k2 and score[k2] - score[k3] < win_by:
+                ahead = False
+        if score[k2] >= target and ahead:
+            if bidder_out and k2 == bt:
+                best, bs = k2, 1 << 60
+            elif score[k2] > bs:
+                best, bs = k2, score[k2]
+    if best >= 0:
+        return best
+    winner = -1
+    if backdoor < 0:
+        for k2 in range(nteams):
+            if score[k2] <= backdoor:
+                top, ts = -1, -(1 << 60)
+                for k3 in range(nteams):
+                    if k3 != k2 and score[k3] > ts:
+                        top, ts = k3, score[k3]
+                winner = top
+    return winner
 
 
 def main():

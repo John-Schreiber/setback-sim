@@ -16,7 +16,7 @@ from numba import njit, prange
 from cardsim.pitch import fast
 from cardsim.pitch.core import bit, lowest
 from cardsim.pitch.game import (C_AUC0, C_HANDS, C_MOON0, C_MOONMADE0, C_REDEALS, C_S0, C_SET0, C_WIN, N_COLS,
-                                hand_key)
+                                game_winner, hand_key)
 from cardsim.pitch.tables import F_ESM, F_POWER, G_DECK
 
 C_NEED = N_COLS  # extra column: the deal a game needed and didn't find (-1 = finished)
@@ -165,27 +165,7 @@ def play_cached(ngames, nplayers, team, strat, nosteal, rp, take, maxbid, moon, 
             dealer = (dealer + 1) % nplayers
             if winner >= 0:
                 break
-            best, bs = -1, -(1 << 60)
-            for k2 in range(nteams):
-                ahead = True
-                for k3 in range(nteams):
-                    if k3 != k2 and score[k2] - score[k3] < win_by:
-                        ahead = False
-                if score[k2] >= target and ahead:
-                    if bidder_out and k2 == bt:
-                        best, bs = k2, 1 << 60
-                    elif score[k2] > bs:
-                        best, bs = k2, score[k2]
-            if best >= 0:
-                winner = best
-            elif backdoor < 0:
-                for k2 in range(nteams):
-                    if score[k2] <= backdoor:
-                        top, ts = -1, -(1 << 60)
-                        for k3 in range(nteams):
-                            if k3 != k2 and score[k3] > ts:
-                                top, ts = k3, score[k3]
-                        winner = top
+            winner = game_winner(score, bt, rp, nteams)
         out[gi, C_WIN] = winner
         out[gi, C_HANDS] = nh
         for k2 in range(nteams):
@@ -267,3 +247,159 @@ def _play_rules(hands, trumps, bidder, team, nteams, rules, tab, gf):
         s_, w_, _ = fast.play_game_won(hands[i], bidder, trumps[i], team, nteams, True, rules, zero, tab, gf)
         sc[i], won[i] = s_, w_
     return sc, won
+
+
+# ---------------------------------------------------------------- the value of passing
+@njit(cache=True)
+def _auction(hands, dealer, k0, high, bidder, nplayers, team, strat, nosteal, rp, take, maxbid, moon, honor_cards,
+             tab, tw, tl, tx):
+    """The rest of an auction (seats k0..nplayers after the dealer) under the teams' tables, from
+    (high, bidder); then a stuck dealer if everyone passed. Returns (bidder, high); bidder -1 =
+    redeal."""
+    min_bid, max_bid, moon_bid, stuck = rp[3], rp[4], rp[5], rp[8]
+    for k in range(k0, nplayers + 1):
+        p = (dealer + k) % nplayers
+        if bidder >= 0 and team[bidder] == team[p] and nosteal[team[p]]:
+            continue
+        t = fast.pick_trump(hands[p], tab, tw, tl, tx)
+        key = hand_key(hands[p], t, honor_cards, tab)
+        mx = maxbid[team[p], key]
+        if moon_bid > 0 and moon[team[p], key] and high < moon_bid:
+            high, bidder = moon_bid, p
+            continue
+        if high >= max_bid:
+            continue
+        if k == nplayers and high >= min_bid and take[high] and mx >= high:
+            bidder = p
+            continue
+        need = high + 1 if high >= min_bid else min_bid
+        want = mx if strat[team[p]] == 1 else (need if need <= mx else 0)
+        if want >= need and want > high:
+            high, bidder = want, p
+    if bidder < 0 and stuck:
+        high, bidder = min_bid, dealer
+    return bidder, high
+
+
+@njit(cache=True)
+def _hand_change(sc, swept, bidder, high, team, nteams, rp):
+    """Each team's score change on a hand (as play_cached scores it); bidder -1 = redeal."""
+    moon_bid, moon_value, no_junk, exact_bonus, ptotal = rp[5], rp[6], rp[12], rp[13], rp[15]
+    change = np.zeros(nteams, np.int64)
+    if bidder < 0:
+        return change, False
+    bt = team[bidder]
+    if high == moon_bid and moon_bid > 0:
+        made = sc[bt] == ptotal and swept == 1
+        change[bt] = moon_value if made else -moon_value
+    else:
+        made = sc[bt] >= high
+        change[bt] = sc[bt] + (exact_bonus if sc[bt] == high else 0) if made else -high
+    for k in range(nteams):
+        if k != bt and not no_junk:
+            change[k] = sc[k]
+    return change, made
+
+
+@njit(cache=True)
+def _swing(change, me, nteams):
+    """Team me's score change minus the other teams' average."""
+    others = 0.0
+    for k in range(nteams):
+        if k != me:
+            others += change[k]
+    return change[me] - others / (nteams - 1)
+
+
+@njit(cache=True)
+def pass_values(ngames, nplayers, team, strat, nosteal, rp, take, maxbid, moon, honor_cards, tab, gf, tw, tl, tx, seed,
+                pts, swept, have, nkeys):
+    """Play the games as play_cached does; at every auction decision where the player could bid
+    (not a moon bid, not barred from overcalling a partner, the bid not yet at the maximum),
+    score both choices on this hand: bid at the cheapest winning level (the dealer's privilege
+    where it applies) or pass, the rest of the auction following the tables. Accumulates per
+    (hand key, level): count, sum and sum of squares of swing(bid) - swing(pass), and how often
+    the table itself bid. need_more[g] >= 0: the game needed that uncached deal (fill, rerun)."""
+    deal_size, min_bid, max_bid, moon_bid = rp[0], rp[3], rp[4], rp[5]
+    nteams = team.max() + 1
+    cards, nd = _deck(gf)
+    L = max_bid + 2
+    cnt = np.zeros((nkeys, L))
+    s1 = np.zeros((nkeys, L))
+    s2 = np.zeros((nkeys, L))
+    took = np.zeros((nkeys, L))
+    sp = np.zeros((nkeys, L))  # sum of swing(pass): what passing is worth here
+    need_more = np.zeros(ngames, np.int64) - 1
+    for gi in range(ngames):
+        np.random.seed(seed + gi)
+        score = np.zeros(nteams, np.int64)
+        dealer = gi % nplayers
+        nh, winner, j = 0, -1, 0
+        while winner < 0 and nh < 1000:
+            if j >= have[gi]:
+                need_more[gi] = j
+                break
+            perm = np.random.permutation(nd)
+            hands = np.zeros(nplayers, np.int64)
+            for q in range(nplayers):
+                for k in range(deal_size):
+                    hands[q] |= bit(cards[perm[q * deal_size + k]])
+            high, bidder = 0, -1
+            for k in range(1, nplayers + 1):
+                p = (dealer + k) % nplayers
+                tp_ = team[p]
+                blocked = bidder >= 0 and team[bidder] == tp_ and nosteal[tp_]
+                t = fast.pick_trump(hands[p], tab, tw, tl, tx)
+                key = hand_key(hands[p], t, honor_cards, tab)
+                mx = maxbid[tp_, key]
+                is_moon = moon_bid > 0 and moon[tp_, key] and high < moon_bid
+                if not blocked and not is_moon and high < max_bid:
+                    dealer_take = k == nplayers and high >= min_bid and take[high]
+                    lv = high if dealer_take else (high + 1 if high >= min_bid else min_bid)
+                    b_b, h_b = _auction(hands, dealer, k + 1, lv, p, nplayers, team, strat, nosteal, rp, take, maxbid,
+                                        moon, honor_cards, tab, tw, tl, tx)
+                    b_p, h_p = _auction(hands, dealer, k + 1, high, bidder, nplayers, team, strat, nosteal, rp, take,
+                                        maxbid, moon, honor_cards, tab, tw, tl, tx)
+                    cb, _ = _hand_change(pts[gi, j, max(b_b, 0)], swept[gi, j, max(b_b, 0)], b_b, h_b, team, nteams, rp)
+                    cp, _ = _hand_change(pts[gi, j, max(b_p, 0)], swept[gi, j, max(b_p, 0)], b_p, h_p, team, nteams, rp)
+                    vp = _swing(cp, tp_, nteams)
+                    d = _swing(cb, tp_, nteams) - vp
+                    sp[key, lv] += vp
+                    cnt[key, lv] += 1
+                    s1[key, lv] += d
+                    s2[key, lv] += d * d
+                    want = mx if strat[tp_] == 1 else (lv if lv <= mx else 0)
+                    if (dealer_take and mx >= high) or (not dealer_take and want >= lv and want > high):
+                        took[key, lv] += 1
+                # the table's own move (as play_cached)
+                if blocked:
+                    continue
+                if is_moon:
+                    high, bidder = moon_bid, p
+                    continue
+                if high >= max_bid:
+                    continue
+                if k == nplayers and high >= min_bid and take[high] and mx >= high:
+                    bidder = p
+                    continue
+                need = high + 1 if high >= min_bid else min_bid
+                want = mx if strat[tp_] == 1 else (need if need <= mx else 0)
+                if want >= need and want > high:
+                    high, bidder = want, p
+            if bidder < 0:
+                if not rp[8]:
+                    dealer = (dealer + 1) % nplayers
+                    j += 1
+                    continue
+                high, bidder = min_bid, dealer
+            bt = team[bidder]
+            change, made = _hand_change(pts[gi, j, bidder], swept[gi, j, bidder], bidder, high, team, nteams, rp)
+            for k2 in range(nteams):
+                score[k2] += change[k2]
+            nh += 1
+            j += 1
+            dealer = (dealer + 1) % nplayers
+            if high == moon_bid and moon_bid > 0 and made and rp[7]:
+                break
+            winner = game_winner(score, bt, rp, nteams)
+    return cnt, s1, s2, took, sp, need_more

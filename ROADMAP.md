@@ -20,7 +20,7 @@ between the reference and compiled engines.
 | Deal | any number of cards (6, 7, 9, ...); discard non-trumps and draw back to 6 |
 | Play | may trump in, or must follow suit; first lead must be trump, may be anything, or must not be trump; trump must be broken |
 | Bidding | minimum and maximum bid; stuck dealer or redeal; dealer's privilege (at which levels); moon / smudge / 11 (scores N, or wins the game) |
-| Scoring | target score; bidder goes out first; win by 2; only the bidder scores ("no junk points"); exact-bid bonus; backdoor loss at a negative score |
+| Scoring | target score; bidder goes out first; win by 2; must bid to go out; only the bidder scores ("no junk points"); exact-bid bonus; backdoor loss at a negative score |
 
 **Presets (nine):** setback4, setback4_lowdealt, setback4_must_follow, six_point, seven_point,
 ten_point, roadhouse, draw_pitch and nine_five, each explained in plain language in
