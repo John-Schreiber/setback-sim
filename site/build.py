@@ -64,7 +64,9 @@ def write(df, name, row_group_size=None):
 def presets():
     rows = []
     for name, r in PRESETS.items():
+        from cardsim.pitch.passline import LINES
         rows.append(dict(preset=name, summary=describe(r), notes=NOTES[name], min_bid=r.min_bid, max_bid=r.max_bid,
+                         line4=LINES.get((name, 4)), line6=LINES.get((name, 6)),
                          moon_bid=r.moon_bid, moon_value=r.moon_value, points_total=r.points_total,
                          target=r.target, deal_size=r.deal_size, hand_size=r.hand_size, jokers=r.jokers,
                          off_jack=r.off_jack, may_trump=r.may_trump, low_to_captor=r.low_to_captor))
@@ -82,6 +84,7 @@ def charts():
         evs = [c for c in df.columns if re.fullmatch(r"ev\d+", c)]
         keep = ["preset", "players", "honors", "small", "hands", "avg", "opp", "p_moon", "max_bid"]
         w = df[keep].copy()
+        w["bid_line"] = df["bid_line"] if "bid_line" in df else df["max_bid"]
         w["ev_moon"] = df["ev_moon"] if "ev_moon" in df else None
         w["net_moon"] = df["net_moon"] if "net_moon" in df else None
         wide.append(w)

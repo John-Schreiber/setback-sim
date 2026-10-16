@@ -34,10 +34,10 @@ partner, and the 9-card widow games (Campbell, High Five, Bundrick).
 
 ### Next for Setback
 
-- **Bid with the opponents counted.** Charts draw the bidding line at expected points >= 0,
-  which ignores what the opponents score; net >= 0 (now in every chart and every-hand table)
-  is too strict, because passing lets someone else bid. Estimate what passing is worth from
-  whole-game sims, set the line against that, and check in `game.py` that it wins more games.
+- **Bid with the opponents counted: done.** Whole-game sweeps (`passline.py`) found, per variant,
+  the line on net expected points that wins the most games and is stable when every team uses
+  it; checked with look-ahead players through `gamecache.py`. The charts now show that line
+  (`bid_line`); the older one (expected points >= 0) stays in the `.csv` as `max_bid`.
 - **Every-hand tables for more variants: done as reduced tables** (`allhands.py --reduced`):
   setback4, setback4_must_follow and setback4_lowdealt, 4- and 6-handed, both kinds of
   players; roadhouse plays a single hand exactly as must-follow and shares its table. Built

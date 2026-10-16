@@ -104,8 +104,15 @@ def aggregate(rules, game, out):
     g["max_bid"] = np.where(ok.any(axis=1), np.array(bids)[np.where(ok, np.arange(len(bids)), -1).max(axis=1)], 0)
     if rules.moon_bid:
         g["ev_moon"] = rules.moon_value * (2 * g.p_moon - 1)
+    # the line that wins whole games (passline.LINES): highest bid with net >= the variant's line
+    from cardsim.pitch.passline import LINES
+    line = LINES.get((rules.name, game.nplayers))
+    if line is not None:
+        okn = g[[f"net{k}" for k in bids]].to_numpy() >= line
+        g["bid_line"] = np.where(okn.any(axis=1), np.array(bids)[np.where(okn, np.arange(len(bids)), -1).max(axis=1)], 0)
     first = ["honors", "small", "hands", "avg", "opp", "p_moon"]
-    g = g[first + [f"ev{k}" for k in bids] + ["max_bid"] + (["ev_moon"] if rules.moon_bid else []) + nets]
+    g = g[first + [f"ev{k}" for k in bids] + ["max_bid"] + (["bid_line"] if line is not None else []) +
+          (["ev_moon"] if rules.moon_bid else []) + nets]
     return g[g.hands >= 1]
 
 
@@ -169,11 +176,17 @@ def strength_key(label, rules):
 
 
 def markdown(rules, nplayers, g, nhands, search):
+    from cardsim.pitch.passline import LINES
     pass_label = "pass"
     cols = sorted(g.small.unique())
+    line = LINES.get((rules.name, nplayers))
+    what = (f"Highest bid worth making by the line that wins the most whole games: net expected points "
+            f"(score change minus the opponents' points on the hand) >= {line:+g} (cardsim/pitch/passline.py; "
+            f"the .csv's max_bid is the older line, expected points >= 0)" if "bid_line" in g else
+            "Highest bid with expected points >= 0")
     lines = [f"## {rules.name}, {nplayers}-handed",
              "",
-             f"Highest bid with expected points >= 0 (bids {rules.min_bid}-{rules.max_bid}; '{pass_label}' = "
+             f"{what} (bids {rules.min_bid}-{rules.max_bid}; '{pass_label}' = "
              f"none), by trump honors held (rows) and number of other small trumps (columns). From "
              f"{nhands:,} deals with search players; blank = fewer than {MIN_HANDS} hands."
              + (f" A moon bid ({rules.moon_bid}, worth {rules.moon_value}) is marked * where it is also "
@@ -189,7 +202,8 @@ def markdown(rules, nplayers, g, nhands, search):
             if r is None or r.hands < MIN_HANDS:
                 cells.append("")
             else:
-                cell = str(r.max_bid) if r.max_bid else pass_label
+                b = r.bid_line if "bid_line" in g else r.max_bid
+                cell = str(b) if b else pass_label
                 if rules.moon_bid and r.ev_moon > 0:
                     cell += "*"
                 cells.append(cell)
@@ -231,7 +245,8 @@ def main():
 
 def write_index():
     lines = ["# Bidding charts by house rules", "",
-             "Each chart gives the highest bid worth making (expected points >= 0) by the honors you hold in "
+             "Each chart gives the highest bid worth making (by the line that wins the most whole games: net "
+             "expected points of at least a per-variant threshold, cardsim/pitch/passline.py) by the honors you hold in "
              "your trump suit and how many other small trumps you have. Built by "
              "`python -m cardsim.pitch.bidchart` from large GPU surveys with search players; the `.csv` next "
              "to each chart has the expected points of every bid for every group, and the net expected points "

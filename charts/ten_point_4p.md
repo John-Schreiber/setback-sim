@@ -1,6 +1,6 @@
 ## ten_point, 4-handed
 
-Highest bid with expected points >= 0 (bids 3-10; 'pass' = none), by trump honors held (rows) and number of other small trumps (columns). From 4,000,000 deals with search players; blank = fewer than 200 hands.
+Highest bid worth making by the line that wins the most whole games: net expected points (score change minus the opponents' points on the hand) >= -0.625 (cardsim/pitch/passline.py; the .csv's max_bid is the older line, expected points >= 0) (bids 3-10; 'pass' = none), by trump honors held (rows) and number of other small trumps (columns). From 4,000,000 deals with search players; blank = fewer than 200 hands.
 
 | trump honors | +0 | +1 | +2 | +3 | +4 | +5 |
 |---|---|---|---|---|---|---|
@@ -40,7 +40,7 @@ Highest bid with expected points >= 0 (bids 3-10; 'pass' = none), by trump honor
 | A K 3 2 | 7 |  |  |  |  |  |
 | A K 3 | 7 | 7 | 7 |  |  |  |
 | A K 2 | 4 | 5 | 5 |  |  |  |
-| A K | 4 | 5 | 5 | 5 |  |  |
+| A K | 4 | 4 | 5 | 5 |  |  |
 | A Q J offJ | 6 |  |  |  |  |  |
 | A Q J BJ | 6 |  |  |  |  |  |
 | A Q J LJ | 6 |  |  |  |  |  |
@@ -66,22 +66,22 @@ Highest bid with expected points >= 0 (bids 3-10; 'pass' = none), by trump honor
 | A Q 10 3 | 7 |  |  |  |  |  |
 | A Q 10 2 | 5 |  |  |  |  |  |
 | A Q 10 | 4 | 5 | 5 |  |  |  |
-| A Q 3 2 | 7 |  |  |  |  |  |
-| A Q 3 | 7 | 7 | 7 |  |  |  |
-| A Q 2 | 4 | 5 | 5 |  |  |  |
+| A Q 3 2 | 6 |  |  |  |  |  |
+| A Q 3 | 6 | 7 | 7 |  |  |  |
+| A Q 2 | 4 | 4 | 5 |  |  |  |
 | A Q | 4 | 4 | 5 | 5 |  |  |
 | A J offJ BJ | 6 |  |  |  |  |  |
 | A J offJ LJ | 6 |  |  |  |  |  |
 | A J offJ 10 | 6 |  |  |  |  |  |
 | A J offJ 3 | 8 |  |  |  |  |  |
-| A J offJ 2 | 6 |  |  |  |  |  |
-| A J offJ | 6 | 6 | 6 |  |  |  |
+| A J offJ 2 | 5 |  |  |  |  |  |
+| A J offJ | 5 | 6 | 6 |  |  |  |
 | A J BJ LJ | 6 |  |  |  |  |  |
 | A J BJ 10 | 6 |  |  |  |  |  |
 | A J BJ 3 | 8 |  |  |  |  |  |
-| A J BJ 2 | 6 |  |  |  |  |  |
-| A J BJ | 5 | 6 | 6 |  |  |  |
-| A J LJ 10 | 6 |  |  |  |  |  |
+| A J BJ 2 | 5 |  |  |  |  |  |
+| A J BJ | 5 | 5 | 6 |  |  |  |
+| A J LJ 10 | 5 |  |  |  |  |  |
 | A J LJ 3 | 8 |  |  |  |  |  |
 | A J LJ 2 | 5 |  |  |  |  |  |
 | A J LJ | 5 | 6 | 6 |  |  |  |
@@ -90,10 +90,10 @@ Highest bid with expected points >= 0 (bids 3-10; 'pass' = none), by trump honor
 | A J 10 | 5 | 5 | 5 |  |  |  |
 | A J 3 2 | 7 |  |  |  |  |  |
 | A J 3 | 7 | 7 | 7 |  |  |  |
-| A J 2 | 5 | 5 | 5 |  |  |  |
-| A J | 5 | 5 | 5 | 5 |  |  |
+| A J 2 | 4 | 5 | 5 |  |  |  |
+| A J | 4 | 4 | 5 | 5 |  |  |
 | A offJ BJ LJ | 6 |  |  |  |  |  |
-| A offJ BJ 10 | 6 |  |  |  |  |  |
+| A offJ BJ 10 | 5 |  |  |  |  |  |
 | A offJ BJ 3 | 8 |  |  |  |  |  |
 | A offJ BJ 2 | 5 |  |  |  |  |  |
 | A offJ BJ | 5 | 5 | 6 |  |  |  |
@@ -102,47 +102,47 @@ Highest bid with expected points >= 0 (bids 3-10; 'pass' = none), by trump honor
 | A offJ LJ 2 | 5 |  |  |  |  |  |
 | A offJ LJ | 5 | 5 | 6 |  |  |  |
 | A offJ 10 3 | 7 |  |  |  |  |  |
-| A offJ 10 2 | 5 |  |  |  |  |  |
-| A offJ 10 | 5 | 5 | 5 |  |  |  |
-| A offJ 3 2 | 7 |  |  |  |  |  |
-| A offJ 3 | 7 | 7 | 7 |  |  |  |
+| A offJ 10 2 | 4 |  |  |  |  |  |
+| A offJ 10 | 4 | 5 | 5 |  |  |  |
+| A offJ 3 2 | 6 |  |  |  |  |  |
+| A offJ 3 | 6 | 7 | 7 |  |  |  |
 | A offJ 2 | 4 | 5 | 5 |  |  |  |
-| A offJ | 4 | 5 | 5 | 5 |  |  |
+| A offJ | 4 | 4 | 5 | 5 |  |  |
 | A BJ LJ 10 | 6 |  |  |  |  |  |
-| A BJ LJ 3 | 8 |  |  |  |  |  |
+| A BJ LJ 3 | 7 |  |  |  |  |  |
 | A BJ LJ 2 | 5 |  |  |  |  |  |
 | A BJ LJ | 5 | 5 | 6 |  |  |  |
 | A BJ 10 3 | 7 |  |  |  |  |  |
-| A BJ 10 2 | 5 |  |  |  |  |  |
-| A BJ 10 | 5 | 5 | 5 |  |  |  |
-| A BJ 3 2 | 7 |  |  |  |  |  |
-| A BJ 3 | 7 | 7 | 7 |  |  |  |
+| A BJ 10 2 | 4 |  |  |  |  |  |
+| A BJ 10 | 4 | 5 | 5 |  |  |  |
+| A BJ 3 2 | 6 |  |  |  |  |  |
+| A BJ 3 | 6 | 7 | 7 |  |  |  |
 | A BJ 2 | 4 | 5 | 5 |  |  |  |
-| A BJ | 4 | 5 | 5 | 5 |  |  |
+| A BJ | 4 | 4 | 5 | 5 |  |  |
 | A LJ 10 3 | 7 |  |  |  |  |  |
 | A LJ 10 2 | 5 |  |  |  |  |  |
-| A LJ 10 | 5 | 5 | 5 |  |  |  |
-| A LJ 3 2 | 7 |  |  |  |  |  |
+| A LJ 10 | 4 | 5 | 5 |  |  |  |
+| A LJ 3 2 | 6 |  |  |  |  |  |
 | A LJ 3 | 6 | 7 | 7 |  |  |  |
-| A LJ 2 | 4 | 5 | 5 |  |  |  |
+| A LJ 2 | 4 | 4 | 5 |  |  |  |
 | A LJ | 4 | 4 | 5 | 5 |  |  |
 | A 10 3 2 | 6 |  |  |  |  |  |
 | A 10 3 | 6 | 6 | 7 |  |  |  |
-| A 10 2 | 4 | 4 | 5 |  |  |  |
-| A 10 | 4 | 4 | 4 | 5 |  |  |
+| A 10 2 | 3 | 4 | 4 |  |  |  |
+| A 10 | 3 | 4 | 4 | 4 |  |  |
 | A 3 2 | 5 | 6 | 7 |  |  |  |
-| A 3 | 6 | 6 | 7 | 7 |  |  |
-| A 2 | 4 | 4 | 4 | 4 |  |  |
-| A | 3 | 4 | 4 | 4 | 4 |  |
+| A 3 | 5 | 6 | 6 | 7 |  |  |
+| A 2 | 3 | 3 | 4 | 4 |  |  |
+| A | 3 | 3 | 3 | 4 | 4 |  |
 | K Q J offJ | 6 |  |  |  |  |  |
 | K Q J BJ | 6 |  |  |  |  |  |
 | K Q J LJ | 6 |  |  |  |  |  |
 | K Q J 10 | 5 |  |  |  |  |  |
-| K Q J 3 | 8 |  |  |  |  |  |
+| K Q J 3 | 7 |  |  |  |  |  |
 | K Q J 2 | 5 |  |  |  |  |  |
 | K Q J | 5 | 5 | 5 |  |  |  |
 | K Q offJ BJ | 6 |  |  |  |  |  |
-| K Q offJ LJ | 6 |  |  |  |  |  |
+| K Q offJ LJ | 5 |  |  |  |  |  |
 | K Q offJ 10 | 5 |  |  |  |  |  |
 | K Q offJ 3 | 7 |  |  |  |  |  |
 | K Q offJ 2 | 5 |  |  |  |  |  |
@@ -157,76 +157,76 @@ Highest bid with expected points >= 0 (bids 3-10; 'pass' = none), by trump honor
 | K Q LJ 2 | 5 |  |  |  |  |  |
 | K Q LJ | 5 | 5 | 5 |  |  |  |
 | K Q 10 3 | 6 |  |  |  |  |  |
-| K Q 10 2 | 5 |  |  |  |  |  |
+| K Q 10 2 | 4 |  |  |  |  |  |
 | K Q 10 | 4 | 4 | 4 |  |  |  |
 | K Q 3 2 | 6 |  |  |  |  |  |
-| K Q 3 | 6 | 7 | 7 |  |  |  |
-| K Q 2 | 4 | 4 | 5 |  |  |  |
-| K Q | 4 | 4 | 4 | 5 |  |  |
+| K Q 3 | 6 | 6 | 7 |  |  |  |
+| K Q 2 | 4 | 4 | 4 |  |  |  |
+| K Q | 3 | 4 | 4 | 4 |  |  |
 | K J offJ BJ | 6 |  |  |  |  |  |
 | K J offJ LJ | 6 |  |  |  |  |  |
 | K J offJ 10 | 5 |  |  |  |  |  |
 | K J offJ 3 | 8 |  |  |  |  |  |
 | K J offJ 2 | 5 |  |  |  |  |  |
-| K J offJ | 5 | 5 | 6 |  |  |  |
+| K J offJ | 5 | 5 | 5 |  |  |  |
 | K J BJ LJ | 6 |  |  |  |  |  |
 | K J BJ 10 | 5 |  |  |  |  |  |
 | K J BJ 3 | 8 |  |  |  |  |  |
 | K J BJ 2 | 5 |  |  |  |  |  |
-| K J BJ | 5 | 5 | 6 |  |  |  |
-| K J LJ 10 | 6 |  |  |  |  |  |
+| K J BJ | 5 | 5 | 5 |  |  |  |
+| K J LJ 10 | 5 |  |  |  |  |  |
 | K J LJ 3 | 8 |  |  |  |  |  |
 | K J LJ 2 | 5 |  |  |  |  |  |
-| K J LJ | 5 | 5 | 6 |  |  |  |
+| K J LJ | 5 | 5 | 5 |  |  |  |
 | K J 10 3 | 7 |  |  |  |  |  |
-| K J 10 2 | 5 |  |  |  |  |  |
-| K J 10 | 5 | 5 | 5 |  |  |  |
-| K J 3 2 | 7 |  |  |  |  |  |
+| K J 10 2 | 4 |  |  |  |  |  |
+| K J 10 | 4 | 4 | 5 |  |  |  |
+| K J 3 2 | 6 |  |  |  |  |  |
 | K J 3 | 7 | 7 | 7 |  |  |  |
-| K J 2 | 4 | 5 | 5 |  |  |  |
-| K J | 4 | 4 | 5 | 5 |  |  |
+| K J 2 | 4 | 4 | 5 |  |  |  |
+| K J | 4 | 4 | 4 | 5 |  |  |
 | K offJ BJ LJ | 6 |  |  |  |  |  |
-| K offJ BJ 10 | 6 |  |  |  |  |  |
+| K offJ BJ 10 | 5 |  |  |  |  |  |
 | K offJ BJ 3 | 7 |  |  |  |  |  |
 | K offJ BJ 2 | 5 |  |  |  |  |  |
-| K offJ BJ | 5 | 5 | 6 |  |  |  |
+| K offJ BJ | 5 | 5 | 5 |  |  |  |
 | K offJ LJ 10 | 5 |  |  |  |  |  |
 | K offJ LJ 3 | 8 |  |  |  |  |  |
 | K offJ LJ 2 | 5 |  |  |  |  |  |
-| K offJ LJ | 5 | 5 | 5 |  |  |  |
+| K offJ LJ | 4 | 5 | 5 |  |  |  |
 | K offJ 10 3 | 7 |  |  |  |  |  |
-| K offJ 10 2 | 5 |  |  |  |  |  |
-| K offJ 10 | 4 | 5 | 5 |  |  |  |
-| K offJ 3 2 | 7 |  |  |  |  |  |
-| K offJ 3 | 7 | 7 | 7 |  |  |  |
-| K offJ 2 | 4 | 5 | 5 |  |  |  |
-| K offJ | 4 | 4 | 5 | 5 |  |  |
+| K offJ 10 2 | 4 |  |  |  |  |  |
+| K offJ 10 | 4 | 4 | 5 |  |  |  |
+| K offJ 3 2 | 6 |  |  |  |  |  |
+| K offJ 3 | 6 | 7 | 7 |  |  |  |
+| K offJ 2 | 4 | 4 | 5 |  |  |  |
+| K offJ | 3 | 4 | 4 | 4 |  |  |
 | K BJ LJ 10 | 5 |  |  |  |  |  |
-| K BJ LJ 3 | 8 |  |  |  |  |  |
+| K BJ LJ 3 | 7 |  |  |  |  |  |
 | K BJ LJ 2 | 5 |  |  |  |  |  |
-| K BJ LJ | 5 | 5 | 5 |  |  |  |
+| K BJ LJ | 4 | 5 | 5 |  |  |  |
 | K BJ 10 3 | 7 |  |  |  |  |  |
 | K BJ 10 2 | 4 |  |  |  |  |  |
-| K BJ 10 | 4 | 5 | 5 |  |  |  |
-| K BJ 3 2 | 7 |  |  |  |  |  |
+| K BJ 10 | 4 | 4 | 5 |  |  |  |
+| K BJ 3 2 | 6 |  |  |  |  |  |
 | K BJ 3 | 6 | 7 | 7 |  |  |  |
-| K BJ 2 | 4 | 5 | 5 |  |  |  |
-| K BJ | 4 | 4 | 4 | 5 |  |  |
+| K BJ 2 | 3 | 4 | 5 |  |  |  |
+| K BJ | 3 | 3 | 4 | 4 |  |  |
 | K LJ 10 3 | 7 |  |  |  |  |  |
 | K LJ 10 2 | 4 |  |  |  |  |  |
-| K LJ 10 | 4 | 5 | 5 |  |  |  |
+| K LJ 10 | 4 | 4 | 5 |  |  |  |
 | K LJ 3 2 | 6 |  |  |  |  |  |
 | K LJ 3 | 6 | 7 | 7 |  |  |  |
-| K LJ 2 | 4 | 5 | 5 |  |  |  |
-| K LJ | 4 | 4 | 5 | 5 |  |  |
+| K LJ 2 | 3 | 4 | 5 |  |  |  |
+| K LJ | 3 | 3 | 4 | 4 |  |  |
 | K 10 3 2 | 6 |  |  |  |  |  |
-| K 10 3 | 6 | 6 | 6 |  |  |  |
-| K 10 2 | 4 | 4 | 4 |  |  |  |
-| K 10 | 3 | 4 | 4 | 4 |  |  |
-| K 3 2 | 5 | 6 | 6 |  |  |  |
-| K 3 | 5 | 6 | 6 | 6 |  |  |
-| K 2 | 3 | 3 | 4 | 4 |  |  |
-| K | 3 | 3 | 4 | 4 | 4 |  |
+| K 10 3 | 5 | 6 | 6 |  |  |  |
+| K 10 2 | 3 | 3 | 4 |  |  |  |
+| K 10 | pass | 3 | 3 | 4 |  |  |
+| K 3 2 | 5 | 5 | 6 |  |  |  |
+| K 3 | 4 | 5 | 6 | 6 |  |  |
+| K 2 | pass | 3 | 3 | 4 |  |  |
+| K | pass | pass | 3 | 3 | 3 |  |
 | Q J offJ BJ | 6 |  |  |  |  |  |
 | Q J offJ LJ | 6 |  |  |  |  |  |
 | Q J offJ 10 | 5 |  |  |  |  |  |
@@ -235,154 +235,154 @@ Highest bid with expected points >= 0 (bids 3-10; 'pass' = none), by trump honor
 | Q J offJ | 5 | 5 | 5 |  |  |  |
 | Q J BJ LJ | 6 |  |  |  |  |  |
 | Q J BJ 10 | 5 |  |  |  |  |  |
-| Q J BJ 3 | 8 |  |  |  |  |  |
+| Q J BJ 3 | 7 |  |  |  |  |  |
 | Q J BJ 2 | 5 |  |  |  |  |  |
 | Q J BJ | 5 | 5 | 5 |  |  |  |
 | Q J LJ 10 | 5 |  |  |  |  |  |
-| Q J LJ 3 | 8 |  |  |  |  |  |
-| Q J LJ 2 | 5 |  |  |  |  |  |
-| Q J LJ | 5 | 5 | 5 |  |  |  |
+| Q J LJ 3 | 7 |  |  |  |  |  |
+| Q J LJ 2 | 4 |  |  |  |  |  |
+| Q J LJ | 4 | 5 | 5 |  |  |  |
 | Q J 10 3 | 7 |  |  |  |  |  |
 | Q J 10 2 | 4 |  |  |  |  |  |
-| Q J 10 | 4 | 4 | 5 |  |  |  |
-| Q J 3 2 | 7 |  |  |  |  |  |
-| Q J 3 | 7 | 7 | 7 |  |  |  |
-| Q J 2 | 4 | 4 | 5 |  |  |  |
-| Q J | 4 | 4 | 5 | 5 |  |  |
-| Q offJ BJ LJ | 6 |  |  |  |  |  |
+| Q J 10 | 4 | 4 | 4 |  |  |  |
+| Q J 3 2 | 6 |  |  |  |  |  |
+| Q J 3 | 6 | 7 | 7 |  |  |  |
+| Q J 2 | 4 | 4 | 4 |  |  |  |
+| Q J | 3 | 3 | 4 | 4 |  |  |
+| Q offJ BJ LJ | 5 |  |  |  |  |  |
 | Q offJ BJ 10 | 5 |  |  |  |  |  |
 | Q offJ BJ 3 | 8 |  |  |  |  |  |
 | Q offJ BJ 2 | 5 |  |  |  |  |  |
-| Q offJ BJ | 5 | 5 | 5 |  |  |  |
+| Q offJ BJ | 4 | 5 | 5 |  |  |  |
 | Q offJ LJ 10 | 5 |  |  |  |  |  |
 | Q offJ LJ 3 | 7 |  |  |  |  |  |
-| Q offJ LJ 2 | 5 |  |  |  |  |  |
-| Q offJ LJ | 5 | 5 | 5 |  |  |  |
+| Q offJ LJ 2 | 4 |  |  |  |  |  |
+| Q offJ LJ | 4 | 5 | 5 |  |  |  |
 | Q offJ 10 3 | 7 |  |  |  |  |  |
 | Q offJ 10 2 | 4 |  |  |  |  |  |
-| Q offJ 10 | 4 | 4 | 5 |  |  |  |
+| Q offJ 10 | 3 | 4 | 4 |  |  |  |
 | Q offJ 3 2 | 6 |  |  |  |  |  |
-| Q offJ 3 | 6 | 7 | 7 |  |  |  |
-| Q offJ 2 | 4 | 4 | 5 |  |  |  |
-| Q offJ | 4 | 4 | 4 | 5 |  |  |
+| Q offJ 3 | 6 | 6 | 7 |  |  |  |
+| Q offJ 2 | 3 | 4 | 4 |  |  |  |
+| Q offJ | 3 | 3 | 4 | 4 |  |  |
 | Q BJ LJ 10 | 5 |  |  |  |  |  |
 | Q BJ LJ 3 | 7 |  |  |  |  |  |
-| Q BJ LJ 2 | 5 |  |  |  |  |  |
-| Q BJ LJ | 5 | 5 | 5 |  |  |  |
+| Q BJ LJ 2 | 4 |  |  |  |  |  |
+| Q BJ LJ | 4 | 4 | 5 |  |  |  |
 | Q BJ 10 3 | 7 |  |  |  |  |  |
 | Q BJ 10 2 | 4 |  |  |  |  |  |
-| Q BJ 10 | 4 | 4 | 5 |  |  |  |
+| Q BJ 10 | 3 | 4 | 4 |  |  |  |
 | Q BJ 3 2 | 6 |  |  |  |  |  |
-| Q BJ 3 | 6 | 7 | 7 |  |  |  |
-| Q BJ 2 | 4 | 4 | 5 |  |  |  |
-| Q BJ | 4 | 4 | 4 | 4 |  |  |
-| Q LJ 10 3 | 7 |  |  |  |  |  |
+| Q BJ 3 | 6 | 6 | 7 |  |  |  |
+| Q BJ 2 | 3 | 4 | 4 |  |  |  |
+| Q BJ | pass | 3 | 3 | 4 |  |  |
+| Q LJ 10 3 | 6 |  |  |  |  |  |
 | Q LJ 10 2 | 4 |  |  |  |  |  |
-| Q LJ 10 | 4 | 4 | 5 |  |  |  |
+| Q LJ 10 | 3 | 4 | 4 |  |  |  |
 | Q LJ 3 2 | 6 |  |  |  |  |  |
-| Q LJ 3 | 6 | 7 | 7 |  |  |  |
-| Q LJ 2 | 4 | 4 | 4 |  |  |  |
-| Q LJ | 4 | 4 | 4 | 5 |  |  |
-| Q 10 3 2 | 6 |  |  |  |  |  |
-| Q 10 3 | 6 | 6 | 6 |  |  |  |
-| Q 10 2 | 3 | 4 | 4 |  |  |  |
-| Q 10 | 3 | 3 | 4 | 4 |  |  |
-| Q 3 2 | 5 | 6 | 6 |  |  |  |
-| Q 3 | 5 | 6 | 6 | 6 |  |  |
-| Q 2 | 3 | 3 | 4 | 4 |  |  |
-| Q | 3 | 3 | 3 | 4 | 4 |  |
-| J offJ BJ 10 | 6 |  |  |  |  |  |
+| Q LJ 3 | 5 | 6 | 7 |  |  |  |
+| Q LJ 2 | 3 | 4 | 4 |  |  |  |
+| Q LJ | pass | 3 | 3 | 4 |  |  |
+| Q 10 3 2 | 5 |  |  |  |  |  |
+| Q 10 3 | 5 | 6 | 6 |  |  |  |
+| Q 10 2 | pass | 3 | 4 |  |  |  |
+| Q 10 | pass | pass | 3 | 3 |  |  |
+| Q 3 2 | 4 | 5 | 6 |  |  |  |
+| Q 3 | 4 | 5 | 6 | 6 |  |  |
+| Q 2 | pass | pass | 3 | 3 |  |  |
+| Q | pass | pass | pass | 3 | 3 |  |
+| J offJ BJ 10 | 5 |  |  |  |  |  |
 | J offJ BJ 3 | 8 |  |  |  |  |  |
-| J offJ BJ 2 | 6 |  |  |  |  |  |
-| J offJ BJ | 5 | 6 | 6 |  |  |  |
-| J offJ LJ 10 | 6 |  |  |  |  |  |
-| J offJ LJ 3 | 8 |  |  |  |  |  |
-| J offJ LJ 2 | 5 |  |  |  |  |  |
-| J offJ LJ | 5 | 5 | 6 |  |  |  |
+| J offJ BJ 2 | 5 |  |  |  |  |  |
+| J offJ BJ | 4 | 5 | 5 |  |  |  |
+| J offJ LJ 10 | 5 |  |  |  |  |  |
+| J offJ LJ 3 | 7 |  |  |  |  |  |
+| J offJ LJ 2 | 4 |  |  |  |  |  |
+| J offJ LJ | 4 | 5 | 5 |  |  |  |
 | J offJ 10 3 | 7 |  |  |  |  |  |
 | J offJ 10 2 | 5 |  |  |  |  |  |
-| J offJ 10 | 5 | 5 | 5 |  |  |  |
-| J offJ 3 2 | 7 |  |  |  |  |  |
-| J offJ 3 | 7 | 7 | 7 |  |  |  |
-| J offJ 2 | 4 | 5 | 5 |  |  |  |
-| J offJ | 4 | 4 | 5 | 5 |  |  |
-| J BJ LJ 10 | 6 |  |  |  |  |  |
+| J offJ 10 | 3 | 4 | 4 |  |  |  |
+| J offJ 3 2 | 6 |  |  |  |  |  |
+| J offJ 3 | 6 | 7 | 7 |  |  |  |
+| J offJ 2 | 3 | 4 | 4 |  |  |  |
+| J offJ | pass | 3 | 4 | 4 |  |  |
+| J BJ LJ 10 | 5 |  |  |  |  |  |
 | J BJ LJ 3 | 7 |  |  |  |  |  |
-| J BJ LJ 2 | 5 |  |  |  |  |  |
-| J BJ LJ | 5 | 5 | 6 |  |  |  |
-| J BJ 10 3 | 7 |  |  |  |  |  |
-| J BJ 10 2 | 5 |  |  |  |  |  |
-| J BJ 10 | 5 | 5 | 5 |  |  |  |
-| J BJ 3 2 | 7 |  |  |  |  |  |
-| J BJ 3 | 6 | 7 | 7 |  |  |  |
-| J BJ 2 | 4 | 5 | 5 |  |  |  |
-| J BJ | 4 | 4 | 5 | 5 |  |  |
+| J BJ LJ 2 | 4 |  |  |  |  |  |
+| J BJ LJ | 3 | 4 | 5 |  |  |  |
+| J BJ 10 3 | 6 |  |  |  |  |  |
+| J BJ 10 2 | 4 |  |  |  |  |  |
+| J BJ 10 | 3 | 4 | 4 |  |  |  |
+| J BJ 3 2 | 6 |  |  |  |  |  |
+| J BJ 3 | 6 | 6 | 7 |  |  |  |
+| J BJ 2 | 3 | 4 | 5 |  |  |  |
+| J BJ | pass | 3 | 4 | 4 |  |  |
 | J LJ 10 3 | 7 |  |  |  |  |  |
-| J LJ 10 2 | 5 |  |  |  |  |  |
-| J LJ 10 | 5 | 5 | 5 |  |  |  |
-| J LJ 3 2 | 7 |  |  |  |  |  |
-| J LJ 3 | 6 | 7 | 7 |  |  |  |
-| J LJ 2 | 4 | 5 | 5 |  |  |  |
-| J LJ | 4 | 4 | 5 | 5 |  |  |
+| J LJ 10 2 | 4 |  |  |  |  |  |
+| J LJ 10 | 3 | 4 | 5 |  |  |  |
+| J LJ 3 2 | 6 |  |  |  |  |  |
+| J LJ 3 | 5 | 7 | 7 |  |  |  |
+| J LJ 2 | 3 | 4 | 4 |  |  |  |
+| J LJ | pass | 3 | 4 | 4 |  |  |
 | J 10 3 2 | 6 |  |  |  |  |  |
-| J 10 3 | 6 | 6 | 7 |  |  |  |
-| J 10 2 | 4 | 4 | 4 |  |  |  |
-| J 10 | 3 | 4 | 4 | 4 |  |  |
-| J 3 2 | 5 | 6 | 7 |  |  |  |
-| J 3 | 5 | 6 | 6 | 6 |  |  |
-| J 2 | 3 | 4 | 4 | 4 |  |  |
-| J | 3 | 3 | 4 | 4 | 4 |  |
+| J 10 3 | 5 | 6 | 6 |  |  |  |
+| J 10 2 | pass | 3 | 4 |  |  |  |
+| J 10 | pass | pass | 3 | 3 |  |  |
+| J 3 2 | 4 | 5 | 6 |  |  |  |
+| J 3 | 3 | 5 | 6 | 6 |  |  |
+| J 2 | pass | pass | 3 | 4 |  |  |
+| J | pass | pass | pass | 3 | 3 |  |
 | offJ BJ LJ 3 | 7 |  |  |  |  |  |
-| offJ BJ LJ |  | 5 | 6 |  |  |  |
-| offJ BJ 10 3 | 7 |  |  |  |  |  |
-| offJ BJ 10 2 | 5 |  |  |  |  |  |
-| offJ BJ 10 | 4 | 5 | 5 |  |  |  |
+| offJ BJ LJ |  | 4 | 5 |  |  |  |
+| offJ BJ 10 3 | 6 |  |  |  |  |  |
+| offJ BJ 10 2 | 4 |  |  |  |  |  |
+| offJ BJ 10 | 3 | 3 | 5 |  |  |  |
 | offJ BJ 3 2 | 6 |  |  |  |  |  |
-| offJ BJ 3 | 6 | 7 | 7 |  |  |  |
-| offJ BJ 2 | 4 | 5 | 5 |  |  |  |
-| offJ BJ |  | 4 | 4 | 5 |  |  |
-| offJ LJ 10 3 | 7 |  |  |  |  |  |
-| offJ LJ 10 2 | 5 |  |  |  |  |  |
-| offJ LJ 10 | 4 | 4 | 5 |  |  |  |
+| offJ BJ 3 | 5 | 6 | 7 |  |  |  |
+| offJ BJ 2 | 3 | 4 | 4 |  |  |  |
+| offJ BJ |  | pass | 3 | 4 |  |  |
+| offJ LJ 10 3 | 6 |  |  |  |  |  |
+| offJ LJ 10 2 | 4 |  |  |  |  |  |
+| offJ LJ 10 | 3 | 3 | 4 |  |  |  |
 | offJ LJ 3 2 | 6 |  |  |  |  |  |
-| offJ LJ 3 | 6 | 7 | 7 |  |  |  |
-| offJ LJ 2 | 4 | 4 | 5 |  |  |  |
-| offJ LJ |  | 4 | 4 | 5 |  |  |
-| offJ 10 3 2 | 6 |  |  |  |  |  |
-| offJ 10 3 | 6 | 6 | 6 |  |  |  |
-| offJ 10 2 | 3 | 4 | 4 |  |  |  |
-| offJ 10 | 3 | 4 | 4 | 4 |  |  |
-| offJ 3 2 | 5 | 6 | 6 |  |  |  |
-| offJ 3 | 5 | 6 | 6 | 6 |  |  |
-| offJ 2 | 3 | 3 | 4 | 4 |  |  |
-| offJ |  | 3 | 3 | 4 | 4 |  |
-| BJ LJ 10 3 | 7 |  |  |  |  |  |
-| BJ LJ 10 |  | 4 | 5 |  |  |  |
+| offJ LJ 3 | 5 | 6 | 7 |  |  |  |
+| offJ LJ 2 | pass | 3 | 4 |  |  |  |
+| offJ LJ |  | pass | 3 | 4 |  |  |
+| offJ 10 3 2 | 5 |  |  |  |  |  |
+| offJ 10 3 | 5 | 6 | 6 |  |  |  |
+| offJ 10 2 | pass | 3 | 3 |  |  |  |
+| offJ 10 | pass | pass | 3 | 3 |  |  |
+| offJ 3 2 | 4 | 5 | 6 |  |  |  |
+| offJ 3 | pass | 5 | 6 | 6 |  |  |
+| offJ 2 | pass | pass | 3 | 3 |  |  |
+| offJ |  | pass | pass | pass | 3 |  |
+| BJ LJ 10 3 | 6 |  |  |  |  |  |
+| BJ LJ 10 |  | 3 | 4 |  |  |  |
 | BJ LJ 3 2 | 6 |  |  |  |  |  |
-| BJ LJ 3 | 6 | 7 | 7 |  |  |  |
-| BJ LJ 2 |  | 4 | 5 |  |  |  |
-| BJ LJ |  | 4 | 4 | 5 |  |  |
-| BJ 10 3 2 | 6 |  |  |  |  |  |
+| BJ LJ 3 | 5 | 6 | 7 |  |  |  |
+| BJ LJ 2 |  | 3 | 4 |  |  |  |
+| BJ LJ |  | pass | 3 | 4 |  |  |
+| BJ 10 3 2 | 5 |  |  |  |  |  |
 | BJ 10 3 | 5 | 6 | 6 |  |  |  |
-| BJ 10 2 | 3 | 4 | 4 |  |  |  |
-| BJ 10 |  | 3 | 4 | 4 |  |  |
-| BJ 3 2 | 5 | 6 | 6 |  |  |  |
-| BJ 3 | 5 | 6 | 6 | 6 |  |  |
-| BJ 2 |  | 3 | 4 | 4 |  |  |
-| BJ |  |  | 3 | 4 | 4 |  |
-| LJ 10 3 2 | 6 |  |  |  |  |  |
-| LJ 10 3 | 5 | 6 | 6 |  |  |  |
-| LJ 10 2 | 3 | 4 | 4 |  |  |  |
-| LJ 10 |  | 3 | 4 | 4 |  |  |
-| LJ 3 2 | 5 | 6 | 6 |  |  |  |
-| LJ 3 | 4 | 5 | 6 | 6 |  |  |
-| LJ 2 |  | 3 | 4 | 4 |  |  |
-| LJ |  |  | 3 | 4 | 4 |  |
-| 10 3 2 | 5 | 5 | 5 |  |  |  |
-| 10 3 | 4 | 5 | 5 | 5 |  |  |
-| 10 2 | pass | 3 | 3 | 3 |  |  |
-| 10 |  | pass | 3 | 3 | 3 |  |
-| 3 2 | 4 | 4 | 5 | 5 |  |  |
-| 3 | 3 | 4 | 5 | 5 | 5 |  |
-| 2 |  | pass | 3 | 3 | 3 |  |
-| (none) |  |  | pass | 3 | 3 |  |
+| BJ 10 2 | pass | 3 | 3 |  |  |  |
+| BJ 10 |  | pass | pass | 3 |  |  |
+| BJ 3 2 | 4 | 5 | 6 |  |  |  |
+| BJ 3 | pass | 5 | 5 | 6 |  |  |
+| BJ 2 |  | pass | 3 | 3 |  |  |
+| BJ |  |  | pass | pass | 3 |  |
+| LJ 10 3 2 | 5 |  |  |  |  |  |
+| LJ 10 3 | 5 | 5 | 6 |  |  |  |
+| LJ 10 2 | pass | 3 | 3 |  |  |  |
+| LJ 10 |  | pass | pass | 3 |  |  |
+| LJ 3 2 | 4 | 5 | 6 |  |  |  |
+| LJ 3 | pass | 4 | 5 | 6 |  |  |
+| LJ 2 |  | pass | pass | 3 |  |  |
+| LJ |  |  | pass | pass | 3 |  |
+| 10 3 2 | 4 | 4 | 5 |  |  |  |
+| 10 3 | pass | 4 | 5 | 5 |  |  |
+| 10 2 | pass | pass | pass | pass |  |  |
+| 10 |  | pass | pass | pass | pass |  |
+| 3 2 | pass | 3 | 4 | 5 |  |  |
+| 3 | pass | pass | 4 | 5 | 5 |  |
+| 2 |  | pass | pass | pass | pass |  |
+| (none) |  |  | pass | pass | pass |  |

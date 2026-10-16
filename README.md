@@ -13,10 +13,11 @@ DuckDB-WASM).
 bidding chart for 4-handed and 6-handed play: for each trump holding, how many small trumps you
 need to bid 2, 3 or 4. [`charts/`](charts/README.md) has a chart for every house-rule preset
 (6-point, 7-point, 10-point, Roadhouse, Draw Pitch, Nine-Five and more), each built from 4
-million deals (2 million 6-handed). A chart cell is the *highest* bid that still has non-negative expected points:
-how far to go in an auction, not necessarily the best opening bid. Each chart's `.csv` has the
-expected points of every bid, and also their **net** expected points: your score change minus
-what the opponents score on the hand.
+million deals (2 million 6-handed). A chart cell is the *highest* bid worth making by the line that wins
+the most whole games (below): how far to go in an auction, not necessarily the best opening bid.
+Each chart's `.csv` has the expected points of every bid, their **net** expected points (your
+score change minus what the opponents score on the hand), the line's bid (`bid_line`) and the
+older line's (`max_bid`, expected points >= 0).
 
 ## What it found (4-handed unless noted)
 
@@ -34,10 +35,14 @@ what the opponents score on the hand.
 - **A higher bid is never worth more on the same hand.** The play doesn't depend on the bid, so
   a higher bid scores the same when made and only adds ways to be set; its only use is winning
   the auction.
-- **Counting the opponents' points is much stricter.** A bid "pays" (expected points >= 0) on
-  about 99% of 4-handed hands, but gains on the opponents (net >= 0) on only about 65% (6-handed:
-  71% and 35%). Passing isn't free either, since someone else then bids, so the right bidding
-  line lies between the two; the charts still use the first.
+- **Bid less than "expected points >= 0" says, and count the opponents.** In whole games
+  (`cardsim/pitch/passline.py`), the line that wins most is a threshold on *net* expected points:
+  setback4 4-handed, bid only when net >= -0.625 (6-handed: -1.75). It is stable (with every team
+  on it, no other line does better), and against it the older line wins 48.8% of 4-handed games.
+  In ten-point, draw pitch and nine-five the older line was far too aggressive: against the new
+  lines it wins only 38-42% of 4-handed games with look-ahead players. Every variant's line is
+  in `passline.LINES`, checked with look-ahead players through a per-deal outcome cache
+  (`cardsim/pitch/gamecache.py`).
 
 The rules assumed: High, Low (scored by whoever captures it), Jack and Game; bids 2–4; the bidder
 leads first and that card sets trump; you may always trump in. 4-handed is two teams of two,
